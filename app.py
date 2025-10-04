@@ -11,20 +11,24 @@ from werkzeug.utils import secure_filename
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_very_secret_key_change_it'
-database_url = os.environ.get('DATABASE_URL')
-if database_url:
-    app.config['SQLALCHEMY_DATABASE_URI'] = database_url.replace("postgres://", "postgresql://", 1)
-else:
-    basedir = os.path.abspath(os.path.dirname(__file__))
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
+basedir = os.path.abspath(os.path.dirname(__file__))
 
-# 画像アップロード設定
+# 2. basedirを使ってアップロードフォルダを設定
 UPLOAD_FOLDER = os.path.join(basedir, 'static/logos')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
+# 3. basedirを使ってデータベースの場所を設定
+# Renderなどの本番環境では環境変数 DATABASE_URL を使い、なければローカルのsqliteを使う
+database_url = os.environ.get('DATABASE_URL')
+if database_url:
+    # HerokuなどのためのURL書き換え
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url.replace("postgres://", "postgresql://", 1)
+else:
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
