@@ -1,0 +1,129 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  /* このページ専用の簡単なスタイル */
+  .bench { border: 1px solid #ddd; padding: 10px; margin-bottom: 15px; border-radius: 5px; }
+  .bench-player { background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px 10px; border-radius: 15px; cursor: pointer; display: inline-block; margin: 5px; }
+  .bench-player:hover { background-color: #e0e0e0; }
+  .bench-player.selected { background-color: #a0a0a0; color: white; cursor: not-allowed; }
+  .stats-table input { width: 40px; }
+</style>
+
+<h2>結果入力: {{ game.home_team.name }} vs {{ game.away_team.name }}</h2>
+<p>各チームのベンチから、試合に出場した選手を5人までクリックして選択してください。</p>
+
+<form method="post">
+  {# --- ホームチーム --- #}
+  <div class="team-section">
+    <h3>{{ game.home_team.name }}</h3>
+    
+    <div class="bench" id="bench-home">
+      <strong>ベンチ:</strong>
+      {% for player in game.home_team.players %}
+        <span class="bench-player" data-team-id="home" data-player-id="{{ player.id }}" data-player-name="{{ player.name }}">{{ player.name }}</span>
+      {% endfor %}
+    </div>
+
+    <table class="stats-table">
+      <thead id="stats-header-home">
+        </thead>
+      <tbody id="stats-body-home">
+        </tbody>
+    </table>
+    <button type="button" class="reset-btn" data-team-id="home">選択をリセット</button>
+  </div>
+
+  <hr style="margin: 30px 0;">
+
+  {# --- アウェイチーム --- #}
+  <div class="team-section">
+    <h3>{{ game.away_team.name }}</h3>
+
+    <div class="bench" id="bench-away">
+      <strong>ベンチ:</strong>
+      {% for player in game.away_team.players %}
+        <span class="bench-player" data-team-id="away" data-player-id="{{ player.id }}" data-player-name="{{ player.name }}">{{ player.name }}</span>
+      {% endfor %}
+    </div>
+
+    <table class="stats-table">
+      <thead id="stats-header-away"></thead>
+      <tbody id="stats-body-away"></tbody>
+    </table>
+    <button type="button" class="reset-btn" data-team-id="away">選択をリセット</button>
+  </div>
+
+  <button type="submit" style="margin-top: 20px; padding: 10px 20px; font-size: 16px;">結果を保存</button>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // ★★★ ここの見出しを日本語に修正 ★★★
+  const statHeaders = ['選手名', '得点', 'ｱｼｽﾄ', 'ﾘﾊﾞｳﾝﾄﾞ', 'ｽﾃｨｰﾙ', 'ﾌﾞﾛｯｸ', 'ﾌｧｳﾙ', 'TO', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA'];
+  const statFields = ['player_name', 'pts', 'ast', 'reb', 'stl', 'blk', 'foul', 'turnover', 'fgm', 'fga', 'three_pm', 'three_pa', 'ftm', 'fta'];
+
+  // ヘッダー行を生成する関数
+  function createHeaderRow() {
+    return '<tr>' + statHeaders.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  }
+
+  // 選手一人の入力行を生成する関数
+  function createPlayerRow(playerId, playerName) {
+    let rowHTML = `<td>${playerName}</td>`;
+    statFields.slice(1).forEach(field => { // 'player_name'は除く
+      rowHTML += `<td><input type="number" name="player_${playerId}_${field}" value="0" min="0"></td>`;
+    });
+    return `<tr data-player-id="${playerId}">${rowHTML}</tr>`;
+  }
+
+  // クリックイベントの処理
+  document.querySelectorAll('.bench-player').forEach(playerSpan => {
+    playerSpan.addEventListener('click', function() {
+      if (this.classList.contains('selected')) {
+        return; // 既に選択済みなら何もしない
+      }
+
+      const teamId = this.dataset.teamId;
+      const statsBody = document.getElementById(`stats-body-${teamId}`);
+      
+      if (statsBody.children.length >= 5) {
+        // ★★★ ここのアラートを日本語に修正 ★★★
+        alert('選択できる選手は5人までです。');
+        return;
+      }
+      
+      // ヘッダーがなければ生成
+      const statsHeader = document.getElementById(`stats-header-${teamId}`);
+      if (statsHeader.children.length === 0) {
+        statsHeader.innerHTML = createHeaderRow();
+      }
+
+      const playerId = this.dataset.playerId;
+      const playerName = this.dataset.playerName;
+      
+      // 選手行をテーブルに追加
+      statsBody.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName));
+      
+      // ベンチの選手を「選択済み」にする
+      this.classList.add('selected');
+    });
+  });
+
+  // リセットボタンの処理
+  document.querySelectorAll('.reset-btn').forEach(button => {
+    button.addEventListener('click', function() {
+      const teamId = this.dataset.teamId;
+      document.getElementById(`stats-header-${teamId}`).innerHTML = '';
+      document.getElementById(`stats-body-${teamId}`).innerHTML = '';
+      
+      // ベンチの選択状態を全て解除
+      document.querySelectorAll(`#bench-${teamId} .bench-player`).forEach(span => {
+        span.classList.remove('selected');
+      });
+    });
+  });
+});
+</script>
+
+{% endblock %}

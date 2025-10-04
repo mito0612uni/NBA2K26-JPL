@@ -1,0 +1,142 @@
+{% extends "layout.html" %}
+{% block content %}
+<style>
+  /* リーグ別順位表の背景色 */
+  .league-a-table { background-color: #ffebee; padding: 15px; border-radius: 8px; }
+  .league-b-table { background-color: #e3f2fd; padding: 15px; border-radius: 8px; }
+</style>
+
+<h1>大会トップページ</h1>
+
+{# --- 全体順位表 --- #}
+<h2>全体順位</h2>
+{% if overall_standings %}
+<table>
+    <thead>
+        <tr>
+            <th>順位</th><th>チーム名</th><th>リーグ</th><th>勝</th><th>負</th><th>勝点</th>
+            <th>平均得点</th><th>平均失点</th><th>得失点差</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in overall_standings %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>
+                {% if row.team and row.team.logo_image %}
+                    <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
+                {% endif %}
+                {{ row.team_name }}
+            </td>
+            {# リーグの色分け #}
+            {% if row.league == 'Aリーグ' %}
+              <td style="background-color: #ffebee; font-weight: bold;">{{ row.league }}</td>
+            {% elif row.league == 'Bリーグ' %}
+              <td style="background-color: #e3f2fd; font-weight: bold;">{{ row.league }}</td>
+            {% else %}
+              <td>{{ row.league }}</td>
+            {% endif %}
+            <td>{{ row.wins }}</td><td>{{ row.losses }}</td><td>{{ row.points }}</td>
+            <td>{{ row.avg_pf }}</td><td>{{ row.avg_pa }}</td><td>{{ row.diff }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}<p>まだ試合結果がありません。</p>{% endif %}
+
+<hr style="margin: 30px 0;">
+
+{# ★★★ ここからが復活させるリーグ別順位のコード ★★★ #}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+  <div class="league-a-table">
+    <h3>Aリーグ順位</h3>
+    {% if league_a_standings %}
+    <table>
+      <thead><tr><th>順位</th><th>チーム名</th></tr></thead>
+      <tbody>
+        {% for row in league_a_standings %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>
+            {% if row.team and row.team.logo_image %}
+              <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
+            {% endif %}
+            {{ row.team_name }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p>試合結果がありません。</p>{% endif %}
+  </div>
+  <div class="league-b-table">
+    <h3>Bリーグ順位</h3>
+    {% if league_b_standings %}
+    <table>
+      <thead><tr><th>順位</th><th>チーム名</th></tr></thead>
+      <tbody>
+        {% for row in league_b_standings %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>
+            {% if row.team and row.team.logo_image %}
+              <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
+            {% endif %}
+            {{ row.team_name }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p>試合結果がありません。</p>{% endif %}
+  </div>
+</div>
+
+<hr style="margin: 30px 0;">
+
+{# ★★★ ここからが復活させるスタッツリーダーのコード ★★★ #}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+  <h2>スタッツリーダー</h2>
+  <a href="{{ url_for('stats_page') }}" class="button" style="text-decoration: none; background-color: #28a745; color: white; padding: 8px 15px; border-radius: 5px;">詳細スタッツを見る</a>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+  {% for category_name, players in leaders.items() %}
+    <div class="leader-category" style="border: 1px solid #ccc; padding: 15px; border-radius: 5px;">
+      <h3 style="margin-top: 0;">{{ category_name }}</h3>
+      <ol style="padding-left: 20px; margin-bottom: 0;">
+        {% for player in players %}
+          {% if player.avg_value is not none and player.avg_value > 0 %}
+            <li>{{ player.name }} ({{ "%.1f"|format(player.avg_value) }})</li>
+          {% endif %}
+        {% else %}
+          <li>データがありません</li>
+        {% endfor %}
+      </ol>
+    </div>
+  {% endfor %}
+</div>
+
+<hr style="margin: 30px 0;">
+
+{# ★★★ ここからが復活させる今後の試合のコード ★★★ #}
+<h2>今後の試合</h2>
+{% if games_by_date %}
+  {% for date, games in games_by_date.items() %}
+    <h3 style="margin-top: 20px; border-bottom: 2px solid #007bff; padding-bottom: 5px;">{{ date }}</h3>
+    {% for game in games %}
+      <p style="margin-left: 10px;">
+        {% if game.home_team.logo_image %}
+          <img src="{{ url_for('static', filename='logos/' + game.home_team.logo_image) }}" alt="{{ game.home_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
+        {% endif %}
+        {{ game.home_team.name }} vs 
+        {% if game.away_team.logo_image %}
+          <img src="{{ url_for('static', filename='logos/' + game.away_team.logo_image) }}" alt="{{ game.away_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-left: 5px; margin-right: 5px;">
+        {% endif %}
+        {{ game.away_team.name }}
+      </p>
+    {% endfor %}
+  {% endfor %}
+{% else %}
+  <p>予定されている試合はありません。</p>
+{% endif %}
+{% endblock %}

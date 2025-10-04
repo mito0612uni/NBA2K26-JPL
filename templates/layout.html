@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>バスケ大会スタッツ</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="{{ url_for('index') }}">トップ</a>
+      <a href="{{ url_for('schedule') }}">日程・結果</a>
+      
+      {% if current_user.is_authenticated and current_user.is_admin %}
+        <a href="{{ url_for('roster') }}">ロスター管理</a>
+      {% endif %}
+
+      <div class="user-nav">
+        {% if current_user.is_authenticated %}
+          <span>こんにちは, {{ current_user.username }} さん</span>
+          <a href="{{ url_for('logout') }}">ログアウト</a>
+        {% else %}
+          <a href="{{ url_for('login') }}">ログイン</a>
+          <a href="{{ url_for('register') }}">登録</a>
+        {% endif %}
+      </div>
+    </nav>
+  </header>
+  <main>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul class="flashes">
+        {% for message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+<script src="https://code.jquery.com/jquery-3.7.0.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

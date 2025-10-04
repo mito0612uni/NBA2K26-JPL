@@ -1,0 +1,68 @@
+{% extends "layout.html" %}
+{% block content %}
+  <h2>詳細スタッツ</h2>
+  
+  <table id="stats-table" class="display" style="width:100%">
+    <thead>
+      <tr>
+        <th>選手名</th>
+        <th>チーム名</th>
+        <th>出場試合</th>
+        <th>平均得点</th>
+        <th>平均アシスト</th>
+        <th>平均リバウンド</th>
+        <th>平均スティール</th>
+        <th>平均ブロック</th>
+        <th>平均ファウル</th>
+        <th>平均TO</th>
+        <th>平均FGM</th>
+        <th>平均FGA</th>
+        <th>FG%</th>
+        <th>平均3PM</th>
+        <th>平均3PA</th>
+        <th>3P%</th>
+        <th>平均FTM</th>
+        <th>平均FTA</th>
+        <th>FT%</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for stat in all_stats %}
+      <tr>
+        <td>{{ stat.player_name }}</td>
+        <td>{{ stat.team_name }}</td>
+        <td>{{ stat.games_played }}</td>
+        <td>{{ "%.1f"|format(stat.avg_pts) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_ast) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_reb) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_stl) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_blk) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_foul) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_turnover) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_fgm) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_fga) }}</td>
+        <td>{{ "%.1f"|format(stat.fg_pct) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_three_pm) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_three_pa) }}</td>
+        <td>{{ "%.1f"|format(stat.three_p_pct) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_ftm) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_fta) }}</td>
+        <td>{{ "%.1f"|format(stat.ft_pct) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  $(document).ready(function() {
+    $('#stats-table').DataTable({
+      language: {
+        "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ja.json"
+      }
+    });
+  });
+</script>
+{% endblock %}

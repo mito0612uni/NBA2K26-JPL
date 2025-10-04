@@ -1,0 +1,80 @@
+{% extends "layout.html" %}
+{% block content %}
+  <h2>ロスター管理</h2>
+  
+  {# --- 登録フォーム (変更なし) --- #}
+  <h3>チーム登録</h3>
+  <form method="post" enctype="multipart/form-data">
+    <input type="text" name="team_name" placeholder="チーム名" required>
+    <select name="league" required>
+        <option value="Aリーグ">Aリーグ</option>
+        <option value="Bリーグ">Bリーグ</option>
+    </select>
+    <label for="logo_image" style="display: block; margin-top: 10px;">チームロゴ (PNG, JPG, GIF):</label>
+    <input type="file" name="logo_image" id="logo_image" accept=".png, .jpg, .jpeg, .gif">
+    <button type="submit" name="action" value="add_team">チームを登録</button>
+  </form>
+
+  <hr style="margin: 20px 0;">
+
+  <h3>選手登録</h3>
+  <form method="post">
+    <input type="text" name="player_name" placeholder="選手名" required>
+    <select name="team_id">
+      {% for team in teams %}
+        <option value="{{ team.id }}">{{ team.name }}</option>
+      {% else %}
+        <option>先にチームを登録してください</option>
+      {% endfor %}
+    </select>
+    <button type="submit" name="action" value="add_player">選手を登録</button>
+  </form>
+<h3>管理者を追加</h3>
+<p>管理者に昇格させたい一般ユーザーの「ユーザー名」を正確に入力してください。</p>
+<form method="post">
+  <input type="text" name="username_to_promote" placeholder="ユーザー名" required>
+  <button type="submit" name="action" value="promote_user">管理者に昇格</button>
+</form>
+  <hr style="margin: 30px 0;">
+
+  <h2>登録済みリスト</h2>
+  {% if teams %}
+    {% for team in teams %}
+      <div style="margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee;">
+          <div style="display: flex; align-items: center;">
+            {% if team.logo_image %}
+              <img src="{{ url_for('static', filename='logos/' + team.logo_image) }}" alt="{{ team.name }} ロゴ" style="height: 30px; margin-right: 10px;">
+            {% endif %}
+            <h3 style="color: #007bff; margin-bottom: 5px;">{{ team.name }} ({{ team.league }})</h3>
+          </div>
+          
+          {# ★★★ ここからチーム削除フォームを修正 ★★★ #}
+          <form action="{{ url_for('delete_team', team_id=team.id) }}" method="post" onsubmit="return confirm('本当にこのチームを削除しますか？所属する選手も全て削除されます。');">
+            <button type="submit" style="background-color: #dc3545; color: white; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer;">削除</button>
+          </form>
+          {# ★★★ ここまで ★★★ #}
+        </div>
+        
+        {% if team.players %}
+          <ul style="list-style-type: none; padding-left: 15px;">
+            {% for player in team.players %}
+              <li style="display: flex; justify-content: space-between; align-items: center; padding: 5px 0;">
+                {{ player.name }}
+                {# ★★★ ここから選手削除フォームを修正 ★★★ #}
+                <form action="{{ url_for('delete_player', player_id=player.id) }}" method="post" onsubmit="return confirm('本当にこの選手を削除しますか？');">
+                  <button type="submit" style="background-color: #ffc107; color: black; border: none; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;">削除</button>
+                </form>
+                {# ★★★ ここまで ★★★ #}
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p style="padding-left: 15px; color: #888;">まだ選手が登録されていません。</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% else %}
+    <p>まだチームが登録されていません。</p>
+  {% endif %}
+{% endblock %}

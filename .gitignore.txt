@@ -1,0 +1,10 @@
+# データベースファイル
+database.db
+
+# Pythonキャッシュ
+__pycache__/
+*.pyc
+
+# 仮想環境フォルダ (もしあれば)
+.venv/
+venv/

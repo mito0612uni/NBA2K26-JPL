@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block content %}
+  <h2>試合日程の追加</h2>
+  <form method="post">
+    <div>
+      <label>試合日</label>
+      <input type="date" name="game_date" required>
+    </div>
+    <div>
+      <label>ホームチーム</label>
+      <select name="home_team_id" required>
+        {% for team in teams %}
+        <option value="{{ team.id }}">{{ team.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>アウェイチーム</label>
+      <select name="away_team_id" required>
+        {% for team in teams %}
+        <option value="{{ team.id }}">{{ team.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit">日程を追加</button>
+  </form>
+{% endblock %}
