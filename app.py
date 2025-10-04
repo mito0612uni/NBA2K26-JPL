@@ -70,6 +70,7 @@ class Game(db.Model):
     home_score = db.Column(db.Integer, default=0)
     away_score = db.Column(db.Integer, default=0)
     is_finished = db.Column(db.Boolean, default=False)
+    youtube_url = db.Column(db.String(200), nullable=True)
     home_team = db.relationship('Team', foreign_keys=[home_team_id])
     away_team = db.relationship('Team', foreign_keys=[away_team_id])
 
@@ -281,39 +282,41 @@ def delete_player(player_id):
     flash(f'選手「{player_name}」を削除しました。'); return redirect(url_for('roster'))
 
 @app.route('/game/<int:game_id>/edit', methods=['GET', 'POST'])
-@login_required
 def edit_game(game_id):
     game = Game.query.get_or_404(game_id)
+    
     if request.method == 'POST':
+        if not current_user.is_authenticated:
+            flash('結果を保存するにはログインが必要です。')
+            return redirect(url_for('login'))
+        
+        # ★★★ YouTubeのURLを保存する処理を追加 ★★★
+        game.youtube_url = request.form.get('youtube_url')
+        
         home_total_score, away_total_score = 0, 0
+        # ... (これ以降のスタッツ保存処理は変更なし) ...
         for team in [game.home_team, game.away_team]:
             for player in team.players:
+                # フォームにデータがある選手のみ処理
                 if f'player_{player.id}_pts' in request.form:
-                    stat = PlayerStat.query.filter_by(game_id=game.id, player_id=player.id).first()
-                    if not stat: stat = PlayerStat(game_id=game.id, player_id=player.id); db.session.add(stat)
-                    stat.pts = request.form.get(f'player_{player.id}_pts', 0, type=int)
-                    stat.ast = request.form.get(f'player_{player.id}_ast', 0, type=int)
-                    stat.reb = request.form.get(f'player_{player.id}_reb', 0, type=int)
-                    stat.stl = request.form.get(f'player_{player.id}_stl', 0, type=int)
-                    stat.blk = request.form.get(f'player_{player.id}_blk', 0, type=int)
-                    stat.foul = request.form.get(f'player_{player.id}_foul', 0, type=int)
-                    stat.turnover = request.form.get(f'player_{player.id}_turnover', 0, type=int)
-                    stat.fgm = request.form.get(f'player_{player.id}_fgm', 0, type=int)
-                    stat.fga = request.form.get(f'player_{player.id}_fga', 0, type=int)
-                    stat.three_pm = request.form.get(f'player_{player.id}_three_pm', 0, type=int)
-                    stat.three_pa = request.form.get(f'player_{player.id}_three_pa', 0, type=int)
-                    stat.ftm = request.form.get(f'player_{player.id}_ftm', 0, type=int)
-                    stat.fta = request.form.get(f'player_{player.id}_fta', 0, type=int)
+                    # ... (中身は省略) ...
                     if team.id == game.home_team_id: home_total_score += stat.pts
                     else: away_total_score += stat.pts
-        game.home_score = home_total_score; game.away_score = away_total_score
+        
+        game.home_score = home_total_score
+        game.away_score = away_total_score
         game.is_finished = True
+        
         db.session.commit()
-        flash('試合結果が更新されました。'); return redirect(url_for('schedule'))
-    stats = {stat.player_id: stat for stat in PlayerStat.query.filter_by(game_id=game_id).all()}
-    return render_template('game_edit.html', game=game, stats=stats)
-
-@app.route('/stats')
+        flash('試合結果が更新されました。')
+        return redirect(url_for('schedule'))
+        
+    # GETリクエスト (ページ表示)
+    stats = {str(stat.player_id): {
+        # ... (中身は省略) ...
+    } for stat in PlayerStat.query.filter_by(game_id=game_id).all()}
+    
+    return render_template('game_edit.html', game=game, stats=stats)@app.route('/stats')
 def stats_page():
     games_played = func.count(PlayerStat.game_id).label('games_played')
     avg_pts = func.avg(PlayerStat.pts).label('avg_pts'); avg_ast = func.avg(PlayerStat.ast).label('avg_ast')

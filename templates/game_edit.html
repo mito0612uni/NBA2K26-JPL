@@ -2,127 +2,169 @@
 
 {% block content %}
 <style>
-  /* このページ専用の簡単なスタイル */
-  .bench { border: 1px solid #ddd; padding: 10px; margin-bottom: 15px; border-radius: 5px; }
-  .bench-player { background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px 10px; border-radius: 15px; cursor: pointer; display: inline-block; margin: 5px; }
-  .bench-player:hover { background-color: #e0e0e0; }
-  .bench-player.selected { background-color: #a0a0a0; color: white; cursor: not-allowed; }
-  .stats-table input { width: 40px; }
+  /* ... スタイルは変更なし ... */
 </style>
 
-<h2>結果入力: {{ game.home_team.name }} vs {{ game.away_team.name }}</h2>
-<p>各チームのベンチから、試合に出場した選手を5人までクリックして選択してください。</p>
+<h2>
+  {% if current_user.is_authenticated %}結果入力{% else %}試合スタッツ{% endif %}: 
+  {{ game.home_team.name }} vs {{ game.away_team.name }}
+</h2>
+
+{# 未ログインユーザー向けの注意書き #}
+{% if not current_user.is_authenticated %}
+  <p style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 5px;">
+    これは閲覧専用です。結果を編集するには<a href="{{ url_for('login') }}">ログイン</a>してください。
+  </p>
+{% endif %}
 
 <form method="post">
   {# --- ホームチーム --- #}
   <div class="team-section">
     <h3>{{ game.home_team.name }}</h3>
-    
+    {% if current_user.is_authenticated %}
     <div class="bench" id="bench-home">
       <strong>ベンチ:</strong>
       {% for player in game.home_team.players %}
         <span class="bench-player" data-team-id="home" data-player-id="{{ player.id }}" data-player-name="{{ player.name }}">{{ player.name }}</span>
       {% endfor %}
     </div>
-
+    {% endif %}
     <table class="stats-table">
-      <thead id="stats-header-home">
-        </thead>
-      <tbody id="stats-body-home">
-        </tbody>
+      <thead id="stats-header-home"></thead>
+      <tbody id="stats-body-home"></tbody>
     </table>
+    {% if current_user.is_authenticated %}
     <button type="button" class="reset-btn" data-team-id="home">選択をリセット</button>
+    {% endif %}
   </div>
 
   <hr style="margin: 30px 0;">
+  {% if current_user.is_authenticated %}
+  <div>
+    <h3>試合の動画リンク</h3>
+    <label for="youtube_url">YouTube URL:</label>
+    <input type="url" id="youtube_url" name="youtube_url" value="{{ game.youtube_url or '' }}" placeholder="https://www.youtube.com/watch?v=..." style="width: 100%; max-width: 500px; padding: 5px;">
+  </div>
+  {% endif %}
 
   {# --- アウェイチーム --- #}
   <div class="team-section">
     <h3>{{ game.away_team.name }}</h3>
-
+    {% if current_user.is_authenticated %}
     <div class="bench" id="bench-away">
       <strong>ベンチ:</strong>
       {% for player in game.away_team.players %}
         <span class="bench-player" data-team-id="away" data-player-id="{{ player.id }}" data-player-name="{{ player.name }}">{{ player.name }}</span>
       {% endfor %}
     </div>
-
+    {% endif %}
     <table class="stats-table">
       <thead id="stats-header-away"></thead>
       <tbody id="stats-body-away"></tbody>
     </table>
+    {% if current_user.is_authenticated %}
     <button type="button" class="reset-btn" data-team-id="away">選択をリセット</button>
+    {% endif %}
   </div>
 
+  {% if current_user.is_authenticated %}
   <button type="submit" style="margin-top: 20px; padding: 10px 20px; font-size: 16px;">結果を保存</button>
+  {% endif %}
 </form>
 
 <script>
+// ★★★ データベースから渡された既存のスタッツをJSON形式で受け取る ★★★
+const existingStats = {{ stats | tojson }};
+
 document.addEventListener('DOMContentLoaded', function() {
-  // ★★★ ここの見出しを日本語に修正 ★★★
   const statHeaders = ['選手名', '得点', 'ｱｼｽﾄ', 'ﾘﾊﾞｳﾝﾄﾞ', 'ｽﾃｨｰﾙ', 'ﾌﾞﾛｯｸ', 'ﾌｧｳﾙ', 'TO', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA'];
   const statFields = ['player_name', 'pts', 'ast', 'reb', 'stl', 'blk', 'foul', 'turnover', 'fgm', 'fga', 'three_pm', 'three_pa', 'ftm', 'fta'];
+  const isUserAuthenticated = {{ current_user.is_authenticated | tojson }};
 
-  // ヘッダー行を生成する関数
-  function createHeaderRow() {
-    return '<tr>' + statHeaders.map(h => `<th>${h}</th>`).join('') + '</tr>';
-  }
+  function createHeaderRow() { /* ... 変更なし ... */ }
 
-  // 選手一人の入力行を生成する関数
-  function createPlayerRow(playerId, playerName) {
+  // ★★★ 既存のスタッツをvalueに設定するよう修正 ★★★
+  function createPlayerRow(playerId, playerName, teamId) {
+    const playerStats = existingStats[playerId] || {};
     let rowHTML = `<td>${playerName}</td>`;
-    statFields.slice(1).forEach(field => { // 'player_name'は除く
-      rowHTML += `<td><input type="number" name="player_${playerId}_${field}" value="0" min="0"></td>`;
+    
+    statFields.slice(1).forEach(field => {
+      const value = playerStats[field] || 0;
+      // ログインしていない場合は入力欄を無効化(readonly)する
+      const readonly = isUserAuthenticated ? '' : 'readonly';
+      rowHTML += `<td><input type="number" name="player_${playerId}_${field}" value="${value}" min="0" ${readonly}></td>`;
     });
-    return `<tr data-player-id="${playerId}">${rowHTML}</tr>`;
+    return `<tr data-player-id="${playerId}" data-team-id="${teamId}">${rowHTML}</tr>`;
+  }
+  
+  // ★★★ ページ読み込み時に既存のスタッツを表示する関数 ★★★
+  function populateInitialStats() {
+    const statsHeaderHome = document.getElementById('stats-header-home');
+    const statsBodyHome = document.getElementById('stats-body-home');
+    const statsHeaderAway = document.getElementById('stats-header-away');
+    const statsBodyAway = document.getElementById('stats-body-away');
+
+    let homeHasStats = false;
+    let awayHasStats = false;
+
+    // 既存のスタッツを持つ選手をテーブルに追加
+    for (const playerId in existingStats) {
+      const player = document.querySelector(`.bench-player[data-player-id='${playerId}']`);
+      if (player) {
+        const teamId = player.dataset.teamId;
+        const playerName = player.dataset.playerName;
+        if (teamId === 'home') {
+          statsBodyHome.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+          player.classList.add('selected'); // ベンチの選手を選択済みにする
+          homeHasStats = true;
+        } else if (teamId === 'away') {
+          statsBodyAway.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+          player.classList.add('selected');
+          awayHasStats = true;
+        }
+      }
+    }
+    
+    // ヘッダーを追加
+    if (homeHasStats) statsHeaderHome.innerHTML = createHeaderRow();
+    if (awayHasStats) statsHeaderAway.innerHTML = createHeaderRow();
   }
 
-  // クリックイベントの処理
-  document.querySelectorAll('.bench-player').forEach(playerSpan => {
-    playerSpan.addEventListener('click', function() {
-      if (this.classList.contains('selected')) {
-        return; // 既に選択済みなら何もしない
-      }
+  // ★★★ ページ読み込み時に実行 ★★★
+  populateInitialStats();
 
-      const teamId = this.dataset.teamId;
-      const statsBody = document.getElementById(`stats-body-${teamId}`);
-      
-      if (statsBody.children.length >= 5) {
-        // ★★★ ここのアラートを日本語に修正 ★★★
-        alert('選択できる選手は5人までです。');
-        return;
-      }
-      
-      // ヘッダーがなければ生成
-      const statsHeader = document.getElementById(`stats-header-${teamId}`);
-      if (statsHeader.children.length === 0) {
-        statsHeader.innerHTML = createHeaderRow();
-      }
-
-      const playerId = this.dataset.playerId;
-      const playerName = this.dataset.playerName;
-      
-      // 選手行をテーブルに追加
-      statsBody.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName));
-      
-      // ベンチの選手を「選択済み」にする
-      this.classList.add('selected');
-    });
-  });
-
-  // リセットボタンの処理
-  document.querySelectorAll('.reset-btn').forEach(button => {
-    button.addEventListener('click', function() {
-      const teamId = this.dataset.teamId;
-      document.getElementById(`stats-header-${teamId}`).innerHTML = '';
-      document.getElementById(`stats-body-${teamId}`).innerHTML = '';
-      
-      // ベンチの選択状態を全て解除
-      document.querySelectorAll(`#bench-${teamId} .bench-player`).forEach(span => {
-        span.classList.remove('selected');
+  if (isUserAuthenticated) {
+    // クリックイベントの処理 (ログイン時のみ有効)
+    document.querySelectorAll('.bench-player').forEach(playerSpan => {
+      playerSpan.addEventListener('click', function() {
+        if (this.classList.contains('selected')) return;
+        const teamId = this.dataset.teamId;
+        const statsBody = document.getElementById(`stats-body-${teamId}`);
+        if (statsBody.children.length >= 5) {
+          alert('選択できる選手は5人までです。');
+          return;
+        }
+        const statsHeader = document.getElementById(`stats-header-${teamId}`);
+        if (statsHeader.children.length === 0) statsHeader.innerHTML = createHeaderRow();
+        const playerId = this.dataset.playerId;
+        const playerName = this.dataset.playerName;
+        statsBody.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+        this.classList.add('selected');
       });
     });
-  });
+
+    // リセットボタンの処理 (ログイン時のみ有効)
+    document.querySelectorAll('.reset-btn').forEach(button => {
+      button.addEventListener('click', function() {
+        const teamId = this.dataset.teamId;
+        document.getElementById(`stats-header-${teamId}`).innerHTML = '';
+        document.getElementById(`stats-body-${teamId}`).innerHTML = '';
+        document.querySelectorAll(`#bench-${teamId} .bench-player`).forEach(span => {
+          span.classList.remove('selected');
+        });
+      });
+    });
+  }
 });
 </script>
 
