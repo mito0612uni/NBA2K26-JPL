@@ -244,4 +244,101 @@ def schedule():
 @admin_required
 def add_schedule():
     if request.method == 'POST':
-        home_team_id = request.form['home_team_id']; away_team_id = request.form
+        home_team_id = request.form['home_team_id']; away_team_id = request.form['away_team_id']
+        if home_team_id == away_team_id:
+            flash("ホームチームとアウェイチームは同じチームを選択できません。"); return redirect(url_for('add_schedule'))
+        new_game = Game(game_date=request.form['game_date'], home_team_id=home_team_id, away_team_id=away_team_id)
+        db.session.add(new_game); db.session.commit()
+        flash("新しい試合日程が追加されました。"); return redirect(url_for('schedule'))
+    teams = Team.query.all()
+    return render_template('add_schedule.html', teams=teams)
+
+@app.route('/team/delete/<int:team_id>', methods=['POST'])
+@login_required
+@admin_required
+def delete_team(team_id):
+    team_to_delete = Team.query.get_or_404(team_id)
+    if team_to_delete.logo_image:
+        logo_path = os.path.join(app.config['UPLOAD_FOLDER'], team_to_delete.logo_image)
+        if os.path.exists(logo_path): os.remove(logo_path)
+    Player.query.filter_by(team_id=team_id).delete()
+    db.session.delete(team_to_delete); db.session.commit()
+    flash(f'チーム「{team_to_delete.name}」と所属選手を削除しました。'); return redirect(url_for('roster'))
+
+@app.route('/player/delete/<int:player_id>', methods=['POST'])
+@login_required
+@admin_required
+def delete_player(player_id):
+    player_to_delete = Player.query.get_or_404(player_id)
+    player_name = player_to_delete.name
+    db.session.delete(player_to_delete); db.session.commit()
+    flash(f'選手「{player_name}」を削除しました。'); return redirect(url_for('roster'))
+
+@app.route('/game/<int:game_id>/edit', methods=['GET', 'POST'])
+def edit_game(game_id):
+    game = Game.query.get_or_404(game_id)
+    if request.method == 'POST':
+        if not current_user.is_authenticated:
+            flash('結果を保存するにはログインが必要です。'); return redirect(url_for('login'))
+        game.youtube_url = request.form.get('youtube_url')
+        home_total_score, away_total_score = 0, 0
+        for team in [game.home_team, game.away_team]:
+            for player in team.players:
+                if f'player_{player.id}_pts' in request.form:
+                    stat = PlayerStat.query.filter_by(game_id=game.id, player_id=player.id).first()
+                    if not stat: stat = PlayerStat(game_id=game.id, player_id=player.id); db.session.add(stat)
+                    stat.pts = request.form.get(f'player_{player.id}_pts', 0, type=int)
+                    stat.ast = request.form.get(f'player_{player.id}_ast', 0, type=int)
+                    stat.reb = request.form.get(f'player_{player.id}_reb', 0, type=int)
+                    stat.stl = request.form.get(f'player_{player.id}_stl', 0, type=int)
+                    stat.blk = request.form.get(f'player_{player.id}_blk', 0, type=int)
+                    stat.foul = request.form.get(f'player_{player.id}_foul', 0, type=int)
+                    stat.turnover = request.form.get(f'player_{player.id}_turnover', 0, type=int)
+                    stat.fgm = request.form.get(f'player_{player.id}_fgm', 0, type=int)
+                    stat.fga = request.form.get(f'player_{player.id}_fga', 0, type=int)
+                    stat.three_pm = request.form.get(f'player_{player.id}_three_pm', 0, type=int)
+                    stat.three_pa = request.form.get(f'player_{player.id}_three_pa', 0, type=int)
+                    stat.ftm = request.form.get(f'player_{player.id}_ftm', 0, type=int)
+                    stat.fta = request.form.get(f'player_{player.id}_fta', 0, type=int)
+                    if team.id == game.home_team_id: home_total_score += stat.pts
+                    else: away_total_score += stat.pts
+        game.home_score = home_total_score; game.away_score = away_total_score
+        game.is_finished = True
+        db.session.commit()
+        flash('試合結果が更新されました。'); return redirect(url_for('schedule'))
+    stats = {str(stat.player_id): {'pts': stat.pts, 'ast': stat.ast, 'reb': stat.reb, 'stl': stat.stl, 'blk': stat.blk, 'foul': stat.foul, 'turnover': stat.turnover, 'fgm': stat.fgm, 'fga': stat.fga, 'three_pm': stat.three_pm, 'three_pa': stat.three_pa, 'ftm': stat.ftm, 'fta': stat.fta} for stat in PlayerStat.query.filter_by(game_id=game_id).all()}
+    return render_template('game_edit.html', game=game, stats=stats)
+
+@app.route('/stats')
+def stats_page():
+    games_played = func.count(PlayerStat.game_id).label('games_played')
+    avg_pts=func.avg(PlayerStat.pts).label('avg_pts'); avg_ast=func.avg(PlayerStat.ast).label('avg_ast')
+    avg_reb=func.avg(PlayerStat.reb).label('avg_reb'); avg_stl=func.avg(PlayerStat.stl).label('avg_stl')
+    avg_blk=func.avg(PlayerStat.blk).label('avg_blk'); avg_foul=func.avg(PlayerStat.foul).label('avg_foul')
+    avg_turnover=func.avg(PlayerStat.turnover).label('avg_turnover'); avg_fgm=func.avg(PlayerStat.fgm).label('avg_fgm')
+    avg_fga=func.avg(PlayerStat.fga).label('avg_fga'); avg_three_pm=func.avg(PlayerStat.three_pm).label('avg_three_pm')
+    avg_three_pa=func.avg(PlayerStat.three_pa).label('avg_three_pa'); avg_ftm=func.avg(PlayerStat.ftm).label('avg_ftm')
+    avg_fta=func.avg(PlayerStat.fta).label('avg_fta')
+    total_fgm = func.sum(PlayerStat.fgm); total_fga = func.sum(PlayerStat.fga)
+    fg_percentage = case((total_fga > 0, (total_fgm * 100.0 / total_fga)), else_=0).label('fg_pct')
+    total_3pm = func.sum(PlayerStat.three_pm); total_3pa = func.sum(PlayerStat.three_pa)
+    three_p_percentage = case((total_3pa > 0, (total_3pm * 100.0 / total_3pa)), else_=0).label('three_p_pct')
+    total_ftm = func.sum(PlayerStat.ftm); total_fta = func.sum(PlayerStat.fta)
+    ft_percentage = case((total_fta > 0, (total_ftm * 100.0 / total_fta)), else_=0).label('ft_pct')
+    all_stats = db.session.query(
+        Player.name.label('player_name'), Team.name.label('team_name'), games_played,
+        avg_pts, avg_ast, avg_reb, avg_stl, avg_blk, avg_foul, avg_turnover,
+        avg_fgm, avg_fga, avg_three_pm, avg_three_pa, avg_ftm, avg_fta,
+        fg_percentage, three_p_percentage, ft_percentage
+    ).join(Player, PlayerStat.player_id == Player.id).join(Team, Player.team_id == Team.id).group_by(Player.id).all()
+    return render_template('stats.html', all_stats=all_stats)
+
+# --- 6. データベース初期化コマンドと実行 ---
+@app.cli.command('init-db')
+def init_db_command():
+    db.drop_all()
+    db.create_all()
+    print('Initialized the database.')
+
+if __name__ == '__main__':
+    app.run(debug=True)
