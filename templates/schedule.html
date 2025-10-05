@@ -23,25 +23,30 @@
     {% for game in games %}
     <div class="game-item" style="border: 1px solid #eee; padding: 15px; margin-bottom: 10px; border-radius: 5px;">
       <p style="margin: 0; display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-weight: bold;">{{ game.game_date }}</span>
-        <span>
-          </span>
-        <span style="white-space: nowrap;">
-          {# ★★★ 動画リンクを2つに修正 ★★★ #}
-          {% if game.youtube_url_home %}
-            <a href="{{ game.youtube_url_home }}" target="_blank" title="{{ game.home_team.name }}視点">[動画 H]</a>
+        <span style="font-weight: bold; min-width: 100px;">{{ game.game_date }}</span>
+        <span style="text-align: center; flex-grow: 1;">
+          {% if game.home_team.logo_image %}
+            <img src="{{ url_for('static', filename='logos/' + game.home_team.logo_image) }}" alt="{{ game.home_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
           {% endif %}
-          {% if game.youtube_url_away %}
-            <a href="{{ game.youtube_url_away }}" target="_blank" title="{{ game.away_team.name }}視点">[動画 A]</a>
+          {{ game.home_team.name }} 
+          {% if game.is_finished %}
+            <span class="score" style="font-weight: bold; margin: 0 10px;">{{ game.home_score }} - {{ game.away_score }}</span> 
+          {% else %}
+            <span style="margin: 0 10px;">vs</span>
           {% endif %}
-          
-          <a href="{{ url_for('edit_game', game_id=game.id) }}" style="margin-left: 15px;">
+          {{ game.away_team.name }}
+          {% if game.away_team.logo_image %}
+            <img src="{{ url_for('static', filename='logos/' + game.away_team.logo_image) }}" alt="{{ game.away_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-left: 5px;">
+          {% endif %}
+        </span>
+        <span style="white-space: nowrap; min-width: 180px; text-align: right;">
+          {% if game.youtube_url_home %}<a href="{{ game.youtube_url_home }}" target="_blank" title="{{ game.home_team.name }}視点">[動画 H]</a>{% endif %}
+          {% if game.youtube_url_away %}<a href="{{ game.youtube_url_away }}" target="_blank" title="{{ game.away_team.name }}視点">[動画 A]</a>{% endif %}
+          <a href="{{ url_for('edit_game', game_id=game.id) }}" style="margin: 0 15px;">
             {% if game.is_finished %}結果を編集/閲覧{% else %}結果入力{% endif %}
           </a>
-          
-          {# ★★★ 管理者用の削除ボタンを追加 ★★★ #}
           {% if current_user.is_authenticated and current_user.is_admin %}
-            <form action="{{ url_for('delete_game', game_id=game.id) }}" method="post" onsubmit="return confirm('本当にこの日程を削除しますか？関連するスタッツも全て削除されます。');" style="display: inline; margin-left: 10px;">
+            <form action="{{ url_for('delete_game', game_id=game.id) }}" method="post" onsubmit="return confirm('本当にこの日程を削除しますか？');" style="display: inline;">
               <button type="submit" style="background: none; border: none; color: red; cursor: pointer; padding: 0;">[削除]</button>
             </form>
           {% endif %}
