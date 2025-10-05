@@ -7,9 +7,17 @@
     {% endif %}
   </div>
 
-  {# --- 絞り込みフォーム (変更なし) --- #}
   <form method="get" action="{{ url_for('schedule') }}" style="margin-bottom: 20px;">
-    </form>
+    <label for="team-select">チームで絞り込み:</label>
+    <select name="team_id" id="team-select" onchange="this.form.submit()">
+      <option value="">全チーム</option>
+      {% for team in all_teams %}
+        <option value="{{ team.id }}" {% if team.id == selected_team_id %}selected{% endif %}>
+          {{ team.name }}
+        </option>
+      {% endfor %}
+    </select>
+  </form>
 
   {% if games %}
     {% for game in games %}
@@ -18,18 +26,24 @@
         <span style="font-weight: bold;">{{ game.game_date }}</span>
         <span>
           </span>
-        <span>
-          {# ★★★ ここからが追加部分 ★★★ #}
-          {% if game.youtube_url %}
-            <a href="{{ game.youtube_url }}" target="_blank" style="margin-right: 15px;">[動画]</a>
+        <span style="white-space: nowrap;">
+          {# ★★★ 動画リンクを2つに修正 ★★★ #}
+          {% if game.youtube_url_home %}
+            <a href="{{ game.youtube_url_home }}" target="_blank" title="{{ game.home_team.name }}視点">[動画 H]</a>
           {% endif %}
-          {# ★★★ ここまで ★★★ #}
-          {% if current_user.is_authenticated %}
-            {% if game.is_finished %}
-              <a href="{{ url_for('edit_game', game_id=game.id) }}">結果を編集</a>
-            {% else %}
-              <a href="{{ url_for('edit_game', game_id=game.id) }}">結果入力</a>
-            {% endif %}
+          {% if game.youtube_url_away %}
+            <a href="{{ game.youtube_url_away }}" target="_blank" title="{{ game.away_team.name }}視点">[動画 A]</a>
+          {% endif %}
+          
+          <a href="{{ url_for('edit_game', game_id=game.id) }}" style="margin-left: 15px;">
+            {% if game.is_finished %}結果を編集/閲覧{% else %}結果入力{% endif %}
+          </a>
+          
+          {# ★★★ 管理者用の削除ボタンを追加 ★★★ #}
+          {% if current_user.is_authenticated and current_user.is_admin %}
+            <form action="{{ url_for('delete_game', game_id=game.id) }}" method="post" onsubmit="return confirm('本当にこの日程を削除しますか？関連するスタッツも全て削除されます。');" style="display: inline; margin-left: 10px;">
+              <button type="submit" style="background: none; border: none; color: red; cursor: pointer; padding: 0;">[削除]</button>
+            </form>
           {% endif %}
         </span>
       </p>

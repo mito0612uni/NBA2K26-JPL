@@ -2,7 +2,12 @@
 
 {% block content %}
 <style>
-  /* ... スタイルは変更なし ... */
+  /* このページ専用の簡単なスタイル */
+  .bench { border: 1px solid #ddd; padding: 10px; margin-bottom: 15px; border-radius: 5px; }
+  .bench-player { background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px 10px; border-radius: 15px; cursor: pointer; display: inline-block; margin: 5px; }
+  .bench-player:hover { background-color: #e0e0e0; }
+  .bench-player.selected { background-color: #a0a0a0; color: white; cursor: not-allowed; }
+  .stats-table input { width: 40px; }
 </style>
 
 <h2>
@@ -10,12 +15,15 @@
   {{ game.home_team.name }} vs {{ game.away_team.name }}
 </h2>
 
-{# 未ログインユーザー向けの注意書き #}
-{% if not current_user.is_authenticated %}
-  <p style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 5px;">
-    これは閲覧専用です。結果を編集するには<a href="{{ url_for('login') }}">ログイン</a>してください。
-  </p>
-{% endif %}
+{# ★★★ 新しい説明文を追加 ★★★ #}
+<p style="margin-bottom: 15px;">
+  チーム得点は自動計算されます。
+  {% if current_user.is_authenticated %}
+  ベンチから5名選んでスタッツを入力してください。
+  {% else %}
+  これは閲覧専用です。結果を編集するには<a href="{{ url_for('login') }}">ログイン</a>してください。
+  {% endif %}
+</p>
 
 <form method="post">
   {# --- ホームチーム --- #}
@@ -39,13 +47,6 @@
   </div>
 
   <hr style="margin: 30px 0;">
-  {% if current_user.is_authenticated %}
-  <div>
-    <h3>試合の動画リンク</h3>
-    <label for="youtube_url">YouTube URL:</label>
-    <input type="url" id="youtube_url" name="youtube_url" value="{{ game.youtube_url or '' }}" placeholder="https://www.youtube.com/watch?v=..." style="width: 100%; max-width: 500px; padding: 5px;">
-  </div>
-  {% endif %}
 
   {# --- アウェイチーム --- #}
   <div class="team-section">
@@ -67,6 +68,23 @@
     {% endif %}
   </div>
 
+  <hr style="margin: 30px 0;">
+
+  {# ★★★ YouTube入力欄を2つに修正 ★★★ #}
+  {% if current_user.is_authenticated %}
+  <div>
+    <h3>試合の動画リンク</h3>
+    <div style="margin-bottom: 10px;">
+      <label for="youtube_url_home">{{ game.home_team.name }}側 URL:</label>
+      <input type="url" id="youtube_url_home" name="youtube_url_home" value="{{ game.youtube_url_home or '' }}" placeholder="https://..." style="width: 100%; max-width: 500px; padding: 5px;">
+    </div>
+    <div>
+      <label for="youtube_url_away">{{ game.away_team.name }}側 URL:</label>
+      <input type="url" id="youtube_url_away" name="youtube_url_away" value="{{ game.youtube_url_away or '' }}" placeholder="https://..." style="width: 100%; max-width: 500px; padding: 5px;">
+    </div>
+  </div>
+  {% endif %}
+  
   {% if current_user.is_authenticated %}
   <button type="submit" style="margin-top: 20px; padding: 10px 20px; font-size: 16px;">結果を保存</button>
   {% endif %}
@@ -81,9 +99,12 @@ document.addEventListener('DOMContentLoaded', function() {
   const statFields = ['player_name', 'pts', 'ast', 'reb', 'stl', 'blk', 'foul', 'turnover', 'fgm', 'fga', 'three_pm', 'three_pa', 'ftm', 'fta'];
   const isUserAuthenticated = {{ current_user.is_authenticated | tojson }};
 
-  function createHeaderRow() { /* ... 変更なし ... */ }
+  // ヘッダー行を生成する関数
+  function createHeaderRow() {
+    return '<tr>' + statHeaders.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  }
 
-  // ★★★ 既存のスタッツをvalueに設定するよう修正 ★★★
+  // 既存のスタッツをvalueに設定するよう修正
   function createPlayerRow(playerId, playerName, teamId) {
     const playerStats = existingStats[playerId] || {};
     let rowHTML = `<td>${playerName}</td>`;
@@ -97,7 +118,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return `<tr data-player-id="${playerId}" data-team-id="${teamId}">${rowHTML}</tr>`;
   }
   
-  // ★★★ ページ読み込み時に既存のスタッツを表示する関数 ★★★
+  // ページ読み込み時に既存のスタッツを表示する関数
   function populateInitialStats() {
     const statsHeaderHome = document.getElementById('stats-header-home');
     const statsBodyHome = document.getElementById('stats-body-home');
@@ -115,13 +136,24 @@ document.addEventListener('DOMContentLoaded', function() {
         const playerName = player.dataset.playerName;
         if (teamId === 'home') {
           statsBodyHome.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
-          player.classList.add('selected'); // ベンチの選手を選択済みにする
+          // ベンチの選手を選択済みにする (ログイン時のみ)
+          if (isUserAuthenticated) player.classList.add('selected'); 
           homeHasStats = true;
         } else if (teamId === 'away') {
           statsBodyAway.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
-          player.classList.add('selected');
+          // ベンチの選手を選択済みにする (ログイン時のみ)
+          if (isUserAuthenticated) player.classList.add('selected');
           awayHasStats = true;
         }
+      } else {
+          // 既存のスタッツがあるが、ベンチ選手リストにいない場合（例：選手が削除された後など）
+          // 閲覧専用であれば表示は続ける
+          const teamId = existingStats[playerId].team_id_from_db; // app.pyからチームIDも渡す必要あり
+          const playerName = existingStats[playerId].player_name_from_db; // app.pyから選手名も渡す必要あり
+          // この部分は、app.pyのstats辞書にもプレイヤー名とチームIDを含める必要があります
+          // 現在のapp.pyのstats辞書はスタッツデータのみなので、playerNameなどを取得できません
+          // 暫定的に、ベンチにいない選手は表示しないか、別途処理が必要です。
+          // シンプルにするため、ここではベンチにいる選手のみ初期表示しています。
       }
     }
     
@@ -130,7 +162,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (awayHasStats) statsHeaderAway.innerHTML = createHeaderRow();
   }
 
-  // ★★★ ページ読み込み時に実行 ★★★
+  // ページ読み込み時に実行
   populateInitialStats();
 
   if (isUserAuthenticated) {

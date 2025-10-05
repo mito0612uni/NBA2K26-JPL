@@ -74,10 +74,11 @@ class Game(db.Model):
     home_score = db.Column(db.Integer, default=0)
     away_score = db.Column(db.Integer, default=0)
     is_finished = db.Column(db.Boolean, default=False)
-    youtube_url = db.Column(db.String(200), nullable=True)
+    # ↓ youtube_url を2つに分割
+    youtube_url_home = db.Column(db.String(200), nullable=True)
+    youtube_url_away = db.Column(db.String(200), nullable=True)
     home_team = db.relationship('Team', foreign_keys=[home_team_id])
     away_team = db.relationship('Team', foreign_keys=[away_team_id])
-
 class PlayerStat(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     game_id = db.Column(db.Integer, db.ForeignKey('game.id'), nullable=False)
@@ -280,7 +281,8 @@ def edit_game(game_id):
     if request.method == 'POST':
         if not current_user.is_authenticated:
             flash('結果を保存するにはログインが必要です。'); return redirect(url_for('login'))
-        game.youtube_url = request.form.get('youtube_url')
+        game.youtube_url_home = request.form.get('youtube_url_home')
+        game.youtube_url_away = request.form.get('youtube_url_away')        
         home_total_score, away_total_score = 0, 0
         for team in [game.home_team, game.away_team]:
             for player in team.players:
@@ -361,3 +363,16 @@ def init_db_command():
 
 if __name__ == '__main__':
     app.run(debug=True)
+@app.route('/game/delete/<int:game_id>', methods=['POST'])
+@login_required
+@admin_required
+def delete_game(game_id):
+    game_to_delete = Game.query.get_or_404(game_id)
+    
+    # 試合に関連するスタッツも全て削除
+    PlayerStat.query.filter_by(game_id=game_id).delete()
+    
+    db.session.delete(game_to_delete)
+    db.session.commit()
+    flash('試合日程を削除しました。')
+    return redirect(url_for('schedule'))
