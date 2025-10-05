@@ -192,8 +192,7 @@ def roster():
         action = request.form.get('action')
 
         if action == 'add_team':
-            team_name = request.form.get('team_name')
-            league = request.form.get('league')
+            team_name = request.form.get('team_name'); league = request.form.get('league')
             logo_filename = None
             if 'logo_image' in request.files:
                 file = request.files['logo_image']
@@ -211,30 +210,25 @@ def roster():
             else: flash('チーム名とリーグを選択してください。')
 
         elif action == 'add_player':
-            player_name = request.form.get('player_name')
-            team_id = request.form.get('team_id')
+            player_name = request.form.get('player_name'); team_id = request.form.get('team_id')
             if player_name and team_id:
                 new_player = Player(name=player_name, team_id=team_id)
                 db.session.add(new_player); db.session.commit()
                 flash(f'選手「{player_name}」が登録されました。')
             else: flash('選手名とチームを選択してください。')
-
+        
         elif action == 'promote_user':
             username_to_promote = request.form.get('username_to_promote')
             if username_to_promote:
                 user_to_promote = User.query.filter_by(username=username_to_promote).first()
                 if user_to_promote:
                     if user_to_promote.role != 'admin':
-                        user_to_promote.role = 'admin'
-                        db.session.commit()
+                        user_to_promote.role = 'admin'; db.session.commit()
                         flash(f'ユーザー「{username_to_promote}」を管理者に昇格させました。')
-                    else:
-                        flash(f'ユーザー「{username_to_promote}」は既に管理者です。')
-                else:
-                    flash(f'ユーザー「{username_to_promote}」が見つかりません。')
-            else:
-                flash('ユーザー名を入力してください。')
-        
+                    else: flash(f'ユーザー「{username_to_promote}」は既に管理者です。')
+                else: flash(f'ユーザー「{username_to_promote}」が見つかりません。')
+            else: flash('ユーザー名を入力してください。')
+
         elif action == 'edit_player':
             player_id = request.form.get('player_id', type=int)
             new_name = request.form.get('new_name')
@@ -254,13 +248,12 @@ def roster():
                 player.team_id = new_team_id
                 db.session.commit()
                 flash(f'選手「{player.name}」を{old_team_name}から{new_team.name}に移籍させました。')
-
+        
         return redirect(url_for('roster'))
 
     teams = Team.query.all()
     users = User.query.all()
     return render_template('roster.html', teams=teams, users=users)
-
 @app.route('/schedule')
 def schedule():
     team_id = request.args.get('team_id', type=int)
