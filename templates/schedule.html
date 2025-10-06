@@ -1,11 +1,12 @@
 {% extends "layout.html" %}
 {% block content %}
-  <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-    <h2>試合日程・結果</h2>
+  <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
+    <h2 style="margin-right: 20px;">試合日程・結果</h2>
     {% if current_user.is_authenticated and current_user.is_admin %}
-    <div>
-      <a href="{{ url_for('auto_schedule') }}" class="button" style="text-decoration: none; background-color: #ffc107; color: black; padding: 8px 15px; border-radius: 5px; margin-right: 10px;">自動作成</a>
-      <a href="{{ url_for('add_schedule') }}" class="button" style="text-decoration: none; background-color: #007bff; color: white; padding: 8px 15px; border-radius: 5px;">新しい日程を追加</a>
+      <div>
+        <a href="{{ url_for('auto_schedule') }}" class="button" style="text-decoration: none; background-color: #ffc107; color: black; padding: 8px 15px; border-radius: 5px; margin-right: 10px;">自動作成</a>
+        <a href="{{ url_for('add_schedule') }}" class="button" style="text-decoration: none; background-color: #007bff; color: white; padding: 8px 15px; border-radius: 5px;">新しい日程を追加</a>
+      </div>
     {% endif %}
   </div>
 
@@ -14,9 +15,7 @@
     <select name="team_id" id="team-select" onchange="this.form.submit()">
       <option value="">全チーム</option>
       {% for team in all_teams %}
-        <option value="{{ team.id }}" {% if team.id == selected_team_id %}selected{% endif %}>
-          {{ team.name }}
-        </option>
+        <option value="{{ team.id }}" {% if team.id == selected_team_id %}selected{% endif %}>{{ team.name }}</option>
       {% endfor %}
     </select>
   </form>
@@ -24,36 +23,33 @@
   {% if games %}
     {% for game in games %}
     <div class="game-item" style="border: 1px solid #eee; padding: 15px; margin-bottom: 10px; border-radius: 5px;">
-      <p style="margin: 0; display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-weight: bold; min-width: 150px;">{{ game.game_date }} {{ game.start_time }}</span>
-        <span style="text-align: center; flex-grow: 1;">
-          {% if game.home_team.logo_image %}
-            <img src="{{ url_for('static', filename='logos/' + game.home_team.logo_image) }}" alt="{{ game.home_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
-          {% endif %}
-          {{ game.home_team.name }} 
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div style="font-weight: bold;">
+          {{ game.game_date }} 
+          {% if game.start_time %}{{ game.start_time }}{% endif %}
+        </div>
+        <div style="flex-grow: 1; text-align: center;">
+          {% if game.home_team.logo_image %}<img src="{{ url_for('static', filename='logos/' + game.home_team.logo_image) }}" alt="" style="height: 20px; vertical-align: middle;">{% endif %}
+          <span>{{ game.home_team.name }} <small>(Home)</small></span>
           {% if game.is_finished %}
-            <span class="score" style="font-weight: bold; margin: 0 10px;">{{ game.home_score }} - {{ game.away_score }}</span> 
+            <span style="font-weight: bold; margin: 0 10px;">{{ game.home_score }} - {{ game.away_score }}</span> 
           {% else %}
             <span style="margin: 0 10px;">vs</span>
           {% endif %}
-          {{ game.away_team.name }}
-          {% if game.away_team.logo_image %}
-            <img src="{{ url_for('static', filename='logos/' + game.away_team.logo_image) }}" alt="{{ game.away_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-left: 5px;">
-          {% endif %}
-        </span>
-        <span style="white-space: nowrap; min-width: 180px; text-align: right;">
+          <span style="margin-right: 5px;">{{ game.away_team.name }} <small>(Away)</small></span>
+          {% if game.away_team.logo_image %}<img src="{{ url_for('static', filename='logos/' + game.away_team.logo_image) }}" alt="" style="height: 20px; vertical-align: middle;">{% endif %}
+        </div>
+        <div style="white-space: nowrap;">
           {% if game.youtube_url_home %}<a href="{{ game.youtube_url_home }}" target="_blank" title="{{ game.home_team.name }}視点">[動画 H]</a>{% endif %}
           {% if game.youtube_url_away %}<a href="{{ game.youtube_url_away }}" target="_blank" title="{{ game.away_team.name }}視点">[動画 A]</a>{% endif %}
-          <a href="{{ url_for('edit_game', game_id=game.id) }}" style="margin: 0 15px;">
-            {% if game.is_finished %}結果を編集/閲覧{% else %}結果入力{% endif %}
-          </a>
+          <a href="{{ url_for('edit_game', game_id=game.id) }}" style="margin: 0 15px;">{% if game.is_finished %}編集/閲覧{% else %}結果入力{% endif %}</a>
           {% if current_user.is_authenticated and current_user.is_admin %}
             <form action="{{ url_for('delete_game', game_id=game.id) }}" method="post" onsubmit="return confirm('本当にこの日程を削除しますか？');" style="display: inline;">
               <button type="submit" style="background: none; border: none; color: red; cursor: pointer; padding: 0;">[削除]</button>
             </form>
           {% endif %}
-        </span>
-      </p>
+        </div>
+      </div>
     </div>
     {% endfor %}
   {% else %}

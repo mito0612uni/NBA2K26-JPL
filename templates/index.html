@@ -129,6 +129,7 @@
       <div class="game-item" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">
         <div style="min-width: 180px;">
           <strong style="font-size: 1.1em;">{{ game.game_date }}</strong>
+          {% if game.start_time %}
           <span style="margin-left: 10px; color: #555;">{{ game.start_time }}</span>
         </div>
         <div>
