@@ -24,7 +24,23 @@
   これは閲覧専用です。結果を編集するには<a href="{{ url_for('login') }}">ログイン</a>してください。
   {% endif %}
 </p>
-
+{# ★★★ 管理者向けアクションを追加 ★★★ #}
+{% if current_user.is_authenticated and current_user.is_admin %}
+<div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+    <h4>管理者アクション：不戦勝処理</h4>
+    <p>以下のボタンを押すと、スタッツを入力せずに不戦勝として即座に結果を記録します（スコアは0-0になります）。</p>
+    <div style="display: flex; gap: 20px;">
+        <form action="{{ url_for('forfeit_game', game_id=game.id) }}" method="post" onsubmit="return confirm('{{ game.home_team.name }} の不戦勝として記録しますか？');">
+            <input type="hidden" name="winning_team_id" value="{{ game.home_team_id }}">
+            <button type="submit" style="background-color: #28a745; color: white;">{{ game.home_team.name }} の不戦勝</button>
+        </form>
+        <form action="{{ url_for('forfeit_game', game_id=game.id) }}" method="post" onsubmit="return confirm('{{ game.away_team.name }} の不戦勝として記録しますか？');">
+            <input type="hidden" name="winning_team_id" value="{{ game.away_team_id }}">
+            <button type="submit" style="background-color: #28a745; color: white;">{{ game.away_team.name }} の不戦勝</button>
+        </form>
+    </div>
+</div>
+{% endif %}
 <form method="post">
   {# --- ホームチーム --- #}
   <div class="team-section">

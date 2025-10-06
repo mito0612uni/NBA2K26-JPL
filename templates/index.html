@@ -118,25 +118,33 @@
 
 <hr style="margin: 30px 0;">
 
-{# ★★★ ここからが復活させる今後の試合のコード ★★★ #}
+{# ... スタッツリーダーのセクションの下 ... #}
+<hr style="margin: 30px 0;">
+
 <h2>今後の試合</h2>
-{% if games_by_date %}
-  {% for date, games in games_by_date.items() %}
-    <h3 style="margin-top: 20px; border-bottom: 2px solid #007bff; padding-bottom: 5px;">{{ date }}</h3>
-    {% for game in games %}
-      <p style="margin-left: 10px;">
-        {% if game.home_team.logo_image %}
-          <img src="{{ url_for('static', filename='logos/' + game.home_team.logo_image) }}" alt="{{ game.home_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
-        {% endif %}
-        {{ game.home_team.name }} vs 
-        {% if game.away_team.logo_image %}
-          <img src="{{ url_for('static', filename='logos/' + game.away_team.logo_image) }}" alt="{{ game.away_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-left: 5px; margin-right: 5px;">
-        {% endif %}
-        {{ game.away_team.name }}
-      </p>
+{% if upcoming_games %}
+  <div class="schedule-list">
+    {# ★★★ ここが新しい表示方法です ★★★ #}
+    {% for game in upcoming_games %}
+      <div class="game-item" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">
+        <div style="min-width: 180px;">
+          <strong style="font-size: 1.1em;">{{ game.game_date }}</strong>
+          <span style="margin-left: 10px; color: #555;">{{ game.start_time }}</span>
+        </div>
+        <div>
+          {% if game.home_team.logo_image %}
+            <img src="{{ url_for('static', filename='logos/' + game.home_team.logo_image) }}" alt="{{ game.home_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
+          {% endif %}
+          {{ game.home_team.name }} 
+          <span style="margin: 0 10px;">vs</span> 
+          {{ game.away_team.name }}
+          {% if game.away_team.logo_image %}
+            <img src="{{ url_for('static', filename='logos/' + game.away_team.logo_image) }}" alt="{{ game.away_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-left: 5px;">
+          {% endif %}
+        </div>
+      </div>
     {% endfor %}
-  {% endfor %}
+  </div>
 {% else %}
   <p>予定されている試合はありません。</p>
 {% endif %}
-{% endblock %}

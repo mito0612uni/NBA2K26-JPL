@@ -1,0 +1,29 @@
+{% extends "layout.html" %}
+{% block content %}
+  <h2>総当たり日程の自動作成</h2>
+  <p>
+    リーグに登録されている全チームの総当たり戦の日程を自動で作成します。<br>
+    <strong>注意：</strong> この操作を実行すると、指定された条件で多数の試合日程が一括で登録されます。
+  </p>
+  <form method="post" onsubmit="return confirm('本当に日程を自動作成しますか？');">
+    <div>
+      <label>リーグ開始日</label>
+      <input type="date" name="start_date" required>
+    </div>
+    <div style="margin-top: 10px;">
+      <label>開催する曜日（複数選択可）</label><br>
+      <input type="checkbox" name="weekdays" value="0" id="mon"><label for="mon">月曜</label>
+      <input type="checkbox" name="weekdays" value="1" id="tue"><label for="tue">火曜</label>
+      <input type="checkbox" name="weekdays" value="2" id="wed"><label for="wed">水曜</label>
+      <input type="checkbox" name="weekdays" value="3" id="thu"><label for="thu">木曜</label>
+      <input type="checkbox" name="weekdays" value="4" id="fri"><label for="fri">金曜</label>
+      <input type="checkbox" name="weekdays" value="5" id="sat"><label for="sat">土曜</label>
+      <input type="checkbox" name="weekdays" value="6" id="sun"><label for="sun">日曜</label>
+    </div>
+    <div style="margin-top: 10px;">
+      <label>開始時刻（カンマ区切りで複数指定）</label>
+      <input type="text" name="times" value="22:40, 23:20" style="width: 300px;" required>
+    </div>
+    <button type="submit" style="margin-top: 20px;">日程を自動作成する</button>
+  </form>
+{% endblock %}

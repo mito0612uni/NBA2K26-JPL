@@ -6,6 +6,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from functools import wraps
 from collections import defaultdict
+# collections の下あたりに追加
+from datetime import datetime, timedelta
+from collections import deque
+import itertools
 from werkzeug.utils import secure_filename
 
 # --- 1. アプリケーションとデータベースの初期設定 ---
@@ -69,6 +73,7 @@ class Player(db.Model):
 class Game(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     game_date = db.Column(db.String(50))
+    start_time = db.Column(db.String(20), nullable=True) # <-- この行を追加
     home_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=False)
     away_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=False)
     home_score = db.Column(db.Integer, default=0)
@@ -77,6 +82,8 @@ class Game(db.Model):
     # ↓ youtube_url を2つに分割
     youtube_url_home = db.Column(db.String(200), nullable=True)
     youtube_url_away = db.Column(db.String(200), nullable=True)
+    winner_id = db.Column(db.Integer, nullable=True)
+    loser_id = db.Column(db.Integer, nullable=True)
     home_team = db.relationship('Team', foreign_keys=[home_team_id])
     away_team = db.relationship('Team', foreign_keys=[away_team_id])
 class PlayerStat(db.Model):
@@ -111,18 +118,38 @@ def calculate_standings(league_filter=None):
     standings = []
     for team in teams:
         wins, losses, points_for, points_against = 0, 0, 0, 0
+        
+        # ホームゲームの集計
         home_games = Game.query.filter_by(home_team_id=team.id, is_finished=True).all()
         for game in home_games:
-            points_for += game.home_score; points_against += game.away_score
-            if game.home_score > game.away_score: wins += 1
-            elif game.home_score < game.away_score: losses += 1
+            points_for += game.home_score
+            points_against += game.away_score
+            if game.winner_id == team.id: # 不戦勝など、勝者が明示されている場合
+                wins += 1
+            elif game.loser_id == team.id: # 敗者が明示されている場合
+                losses += 1
+            elif game.home_score > game.away_score: # スコアで勝敗を判断
+                wins += 1
+            elif game.home_score < game.away_score:
+                losses += 1
+        
+        # アウェイゲームの集計
         away_games = Game.query.filter_by(away_team_id=team.id, is_finished=True).all()
         for game in away_games:
-            points_for += game.away_score; points_against += game.home_score
-            if game.away_score > game.home_score: wins += 1
-            elif game.away_score < game.home_score: losses += 1
+            points_for += game.away_score
+            points_against += game.home_score
+            if game.winner_id == team.id:
+                wins += 1
+            elif game.loser_id == team.id:
+                losses += 1
+            elif game.away_score > game.home_score:
+                wins += 1
+            elif game.away_score < game.home_score:
+                losses += 1
+        
         games_played = wins + losses
         points = (wins * 2) + (losses * 1)
+        
         standings.append({
             'team': team, 'team_name': team.name, 'league': team.league, 'wins': wins, 'losses': losses, 'points': points,
             'avg_pf': round(points_for / games_played, 1) if games_played > 0 else 0,
@@ -131,7 +158,6 @@ def calculate_standings(league_filter=None):
         })
     standings.sort(key=lambda x: (x['points'], x['diff']), reverse=True)
     return standings
-
 def get_stats_leaders():
     leaders = {}
     stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
@@ -176,14 +202,19 @@ def index():
     league_a_standings = calculate_standings(league_filter="Aリーグ")
     league_b_standings = calculate_standings(league_filter="Bリーグ")
     stats_leaders = get_stats_leaders()
-    upcoming_games_list = Game.query.filter_by(is_finished=False).order_by(Game.game_date.asc()).all()
-    games_by_date = defaultdict(list)
-    for game in upcoming_games_list:
-        games_by_date[game.game_date].append(game)
-    return render_template('index.html', overall_standings=overall_standings,
-                           league_a_standings=league_a_standings, league_b_standings=league_b_standings,
-                           leaders=stats_leaders, games_by_date=games_by_date)
-
+    
+    # ★★★ ここでシンプルなリストを取得 ★★★
+    upcoming_games = Game.query.filter_by(is_finished=False).order_by(Game.game_date.asc(), Game.start_time.asc()).all()
+    
+    teams_data = Team.query.all()
+    
+    return render_template('index.html', 
+                           overall_standings=overall_standings,
+                           league_a_standings=league_a_standings,
+                           league_b_standings=league_b_standings,
+                           leaders=stats_leaders, 
+                           upcoming_games=upcoming_games, # ★★★ games_by_date から upcoming_games に変更 ★★★
+                           teams_data=teams_data)
 @app.route('/roster', methods=['GET', 'POST'])
 @login_required
 @admin_required
@@ -270,6 +301,7 @@ def schedule():
 def add_schedule():
     if request.method == 'POST':
         home_team_id = request.form['home_team_id']; away_team_id = request.form['away_team_id']
+        start_time = request.form['start_time'] # <-- この行を追加
         if home_team_id == away_team_id:
             flash("ホームチームとアウェイチームは同じチームを選択できません。"); return redirect(url_for('add_schedule'))
         new_game = Game(game_date=request.form['game_date'], home_team_id=home_team_id, away_team_id=away_team_id)
@@ -400,3 +432,115 @@ def delete_game(game_id):
     db.session.commit()
     flash('試合日程を削除しました。')
     return redirect(url_for('schedule'))
+# --- ▼▼▼ これをapp.pyに追加 ▼▼▼ ---
+
+@app.route('/game/<int:game_id>/forfeit', methods=['POST'])
+@login_required
+@admin_required
+def forfeit_game(game_id):
+    game = Game.query.get_or_404(game_id)
+    winning_team_id = request.form.get('winning_team_id', type=int)
+
+    # 勝者と敗者を設定
+    if winning_team_id == game.home_team_id:
+        game.winner_id = game.home_team_id
+        game.loser_id = game.away_team_id
+    elif winning_team_id == game.away_team_id:
+        game.winner_id = game.away_team_id
+        game.loser_id = game.home_team_id
+    else:
+        flash('無効なチームが選択されました。')
+        return redirect(url_for('edit_game', game_id=game_id))
+
+    game.is_finished = True
+    game.home_score = 0  # スコアは0-0とする
+    game.away_score = 0
+    
+    # この試合の既存スタッツをすべて削除
+    PlayerStat.query.filter_by(game_id=game_id).delete()
+
+    db.session.commit()
+    flash('不戦勝として試合結果を記録しました。')
+    return redirect(url_for('schedule'))
+
+# --- ▲▲▲ ここまで追加 ▲▲▲ ---
+# --- ▼▼▼ これをapp.pyに追加 ▼▼▼ ---
+
+@app.route('/auto_schedule', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def auto_schedule():
+    if request.method == 'POST':
+        start_date_str = request.form.get('start_date')
+        weekdays = request.form.getlist('weekdays') # [ '1', '3', '6' ] (月曜=0)
+        times_str = request.form.get('times') # "22:40, 23:20"
+        
+        if not all([start_date_str, weekdays, times_str]):
+            flash('すべての項目を入力してください。')
+            return redirect(url_for('auto_schedule'))
+
+        # --- 1. チームリストと対戦組み合わせの生成 ---
+        teams = list(Team.query.all())
+        if len(teams) < 2:
+            flash('対戦するには少なくとも2チーム必要です。')
+            return redirect(url_for('auto_schedule'))
+        
+        # チーム数が奇数なら、ダミーの「休み」チームを追加
+        if len(teams) % 2 != 0:
+            teams.append(None)
+        
+        num_teams = len(teams)
+        num_rounds = num_teams - 1
+        
+        matchups = []
+        rotating_teams = deque(teams[1:])
+        
+        for _ in range(num_rounds):
+            round_matchups = []
+            # 固定チーム vs 回転の最後のチーム
+            round_matchups.append((teams[0], rotating_teams[-1]))
+            
+            # 残りのチームの対戦
+            for i in range((num_teams // 2) - 1):
+                round_matchups.append((rotating_teams[i], rotating_teams[-(i + 2)]))
+            
+            matchups.extend(round_matchups)
+            rotating_teams.rotate(1) # チームを一つ回転
+
+        # --- 2. 試合日時のスロットを生成 ---
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        selected_weekdays = [int(d) for d in weekdays] # [1, 3, 6]
+        times = [t.strip() for t in times_str.split(',')] # ["22:40", "23:20"]
+        
+        game_slots = []
+        current_date = start_date
+        while len(game_slots) < len(matchups):
+            if current_date.weekday() in selected_weekdays:
+                for time_slot in times:
+                    game_slots.append({'date': current_date.strftime('%Y-%m-%d'), 'time': time_slot})
+            current_date += timedelta(days=1)
+
+        # --- 3. 試合日程をデータベースに保存 ---
+        for i, match in enumerate(matchups):
+            home_team, away_team = match
+            # どちらかが「休み」チームなら日程を作成しない
+            if home_team is None or away_team is None:
+                continue
+
+            if i < len(game_slots):
+                slot = game_slots[i]
+                new_game = Game(
+                    game_date=slot['date'],
+                    start_time=slot['time'],
+                    home_team_id=home_team.id,
+                    away_team_id=away_team.id
+                )
+                db.session.add(new_game)
+
+        db.session.commit()
+        flash(f'{len(matchups)}試合の総当たり日程を自動作成しました。')
+        return redirect(url_for('schedule'))
+
+    return render_template('auto_schedule.html')
+
+# --- ▲▲▲ ここまで追加 ▲▲▲ ---
