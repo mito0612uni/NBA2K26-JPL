@@ -23,12 +23,12 @@
         <tr>
             <td>{{ loop.index }}</td>
             <td>
+                {# ★★★ ここからが修正部分 ★★★ #}
                 {% if row.team and row.team.logo_image %}
                     <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
                 {% endif %}
                 {{ row.team_name }}
             </td>
-            {# リーグの色分け #}
             {% if row.league == 'Aリーグ' %}
               <td style="background-color: #ffebee; font-weight: bold;">{{ row.league }}</td>
             {% elif row.league == 'Bリーグ' %}
@@ -36,6 +36,7 @@
             {% else %}
               <td>{{ row.league }}</td>
             {% endif %}
+            {# ★★★ ここまで ★★★ #}
             <td>{{ row.wins }}</td><td>{{ row.losses }}</td><td>{{ row.points }}</td>
             <td>{{ row.avg_pf }}</td><td>{{ row.avg_pa }}</td><td>{{ row.diff }}</td>
         </tr>
@@ -46,7 +47,7 @@
 
 <hr style="margin: 30px 0;">
 
-{# ★★★ ここからが復活させるリーグ別順位のコード ★★★ #}
+{# --- リーグ別順位表 --- #}
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
   <div class="league-a-table">
     <h3>Aリーグ順位</h3>
@@ -94,7 +95,7 @@
 
 <hr style="margin: 30px 0;">
 
-{# ★★★ ここからが復活させるスタッツリーダーのコード ★★★ #}
+{# --- スタッツリーダー --- #}
 <div style="display: flex; justify-content: space-between; align-items: center;">
   <h2>スタッツリーダー</h2>
   <a href="{{ url_for('stats_page') }}" class="button" style="text-decoration: none; background-color: #28a745; color: white; padding: 8px 15px; border-radius: 5px;">詳細スタッツを見る</a>
@@ -118,19 +119,17 @@
 
 <hr style="margin: 30px 0;">
 
-{# ... スタッツリーダーのセクションの下 ... #}
-<hr style="margin: 30px 0;">
-
+{# --- 今後の試合 --- #}
 <h2>今後の試合</h2>
 {% if upcoming_games %}
   <div class="schedule-list">
-    {# ★★★ ここが新しい表示方法です ★★★ #}
     {% for game in upcoming_games %}
       <div class="game-item" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">
         <div style="min-width: 180px;">
           <strong style="font-size: 1.1em;">{{ game.game_date }}</strong>
           {% if game.start_time %}
-          <span style="margin-left: 10px; color: #555;">{{ game.start_time }}</span>
+            <span style="margin-left: 10px; color: #555;">{{ game.start_time }}</span>
+          {% endif %}
         </div>
         <div>
           {% if game.home_team.logo_image %}
@@ -149,4 +148,5 @@
 {% else %}
   <p>予定されている試合はありません。</p>
 {% endif %}
+
 {% endblock %}
