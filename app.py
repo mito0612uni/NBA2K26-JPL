@@ -1,24 +1,20 @@
 import os
-import random  # <-- これを追加
-import string  # <-- これを追加
+import random
+import string
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, case, or_
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from functools import wraps
-from collections import defaultdict
-# collections の下あたりに追加
-from datetime import datetime, timedelta
-from collections import deque
-import itertools
+from collections import defaultdict, deque
 from werkzeug.utils import secure_filename
+from datetime import datetime, timedelta
+from itertools import combinations
 
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_very_secret_key_change_it'
-
-# ベースディレクトリを最初に定義
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 # 画像アップロード設定
@@ -38,10 +34,6 @@ else:
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
-
-# ファイル形式をチェックするヘルパー関数
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # --- 2. ログインマネージャーの設定 ---
 login_manager = LoginManager()
@@ -75,20 +67,20 @@ class Player(db.Model):
 class Game(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     game_date = db.Column(db.String(50))
-    start_time = db.Column(db.String(20), nullable=True) # <-- この行を追加
+    start_time = db.Column(db.String(20), nullable=True)
     game_password = db.Column(db.String(50), nullable=True)
     home_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=False)
     away_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=False)
     home_score = db.Column(db.Integer, default=0)
     away_score = db.Column(db.Integer, default=0)
     is_finished = db.Column(db.Boolean, default=False)
-    # ↓ youtube_url を2つに分割
     youtube_url_home = db.Column(db.String(200), nullable=True)
     youtube_url_away = db.Column(db.String(200), nullable=True)
     winner_id = db.Column(db.Integer, nullable=True)
     loser_id = db.Column(db.Integer, nullable=True)
     home_team = db.relationship('Team', foreign_keys=[home_team_id])
     away_team = db.relationship('Team', foreign_keys=[away_team_id])
+
 class PlayerStat(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     game_id = db.Column(db.Integer, db.ForeignKey('game.id'), nullable=False)
@@ -115,44 +107,34 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def generate_password(length=4):
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
 def calculate_standings(league_filter=None):
     if league_filter: teams = Team.query.filter_by(league=league_filter).all()
     else: teams = Team.query.all()
     standings = []
     for team in teams:
         wins, losses, points_for, points_against = 0, 0, 0, 0
-        
-        # ホームゲームの集計
         home_games = Game.query.filter_by(home_team_id=team.id, is_finished=True).all()
         for game in home_games:
-            points_for += game.home_score
-            points_against += game.away_score
-            if game.winner_id == team.id: # 不戦勝など、勝者が明示されている場合
-                wins += 1
-            elif game.loser_id == team.id: # 敗者が明示されている場合
-                losses += 1
-            elif game.home_score > game.away_score: # スコアで勝敗を判断
-                wins += 1
-            elif game.home_score < game.away_score:
-                losses += 1
-        
-        # アウェイゲームの集計
+            points_for += game.home_score; points_against += game.away_score
+            if game.winner_id == team.id: wins += 1
+            elif game.loser_id == team.id: losses += 1
+            elif game.home_score > game.away_score: wins += 1
+            elif game.home_score < game.away_score: losses += 1
         away_games = Game.query.filter_by(away_team_id=team.id, is_finished=True).all()
         for game in away_games:
-            points_for += game.away_score
-            points_against += game.home_score
-            if game.winner_id == team.id:
-                wins += 1
-            elif game.loser_id == team.id:
-                losses += 1
-            elif game.away_score > game.home_score:
-                wins += 1
-            elif game.away_score < game.home_score:
-                losses += 1
-        
+            points_for += game.away_score; points_against += game.home_score
+            if game.winner_id == team.id: wins += 1
+            elif game.loser_id == team.id: losses += 1
+            elif game.away_score > game.home_score: wins += 1
+            elif game.away_score < game.home_score: losses += 1
         games_played = wins + losses
         points = (wins * 2) + (losses * 1)
-        
         standings.append({
             'team': team, 'team_name': team.name, 'league': team.league, 'wins': wins, 'losses': losses, 'points': points,
             'avg_pf': round(points_for / games_played, 1) if games_played > 0 else 0,
@@ -161,6 +143,7 @@ def calculate_standings(league_filter=None):
         })
     standings.sort(key=lambda x: (x['points'], x['diff']), reverse=True)
     return standings
+
 def get_stats_leaders():
     leaders = {}
     stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
@@ -205,26 +188,18 @@ def index():
     league_a_standings = calculate_standings(league_filter="Aリーグ")
     league_b_standings = calculate_standings(league_filter="Bリーグ")
     stats_leaders = get_stats_leaders()
-    
-    # ★★★ ここでシンプルなリストを取得 ★★★
     upcoming_games = Game.query.filter_by(is_finished=False).order_by(Game.game_date.asc(), Game.start_time.asc()).all()
-    
     teams_data = Team.query.all()
-    
-    return render_template('index.html', 
-                           overall_standings=overall_standings,
-                           league_a_standings=league_a_standings,
-                           league_b_standings=league_b_standings,
-                           leaders=stats_leaders, 
-                           upcoming_games=upcoming_games, # ★★★ games_by_date から upcoming_games に変更 ★★★
-                           teams_data=teams_data)
+    return render_template('index.html', overall_standings=overall_standings,
+                           league_a_standings=league_a_standings, league_b_standings=league_b_standings,
+                           leaders=stats_leaders, upcoming_games=upcoming_games, teams_data=teams_data)
+
 @app.route('/roster', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def roster():
     if request.method == 'POST':
         action = request.form.get('action')
-
         if action == 'add_team':
             team_name = request.form.get('team_name'); league = request.form.get('league')
             logo_filename = None
@@ -233,8 +208,7 @@ def roster():
                 if file and file.filename != '' and allowed_file(file.filename):
                     logo_filename = secure_filename(file.filename)
                     file.save(os.path.join(app.config['UPLOAD_FOLDER'], logo_filename))
-                elif file.filename != '':
-                    flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
+                elif file.filename != '': flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
             if team_name and league:
                 if not Team.query.filter_by(name=team_name).first():
                     new_team = Team(name=team_name, league=league, logo_image=logo_filename)
@@ -242,7 +216,6 @@ def roster():
                     flash(f'チーム「{team_name}」が{league}に登録されました。')
                 else: flash(f'チーム「{team_name}」は既に存在します。')
             else: flash('チーム名とリーグを選択してください。')
-
         elif action == 'add_player':
             player_name = request.form.get('player_name'); team_id = request.form.get('team_id')
             if player_name and team_id:
@@ -250,7 +223,6 @@ def roster():
                 db.session.add(new_player); db.session.commit()
                 flash(f'選手「{player_name}」が登録されました。')
             else: flash('選手名とチームを選択してください。')
-        
         elif action == 'promote_user':
             username_to_promote = request.form.get('username_to_promote')
             if username_to_promote:
@@ -262,39 +234,30 @@ def roster():
                     else: flash(f'ユーザー「{username_to_promote}」は既に管理者です。')
                 else: flash(f'ユーザー「{username_to_promote}」が見つかりません。')
             else: flash('ユーザー名を入力してください。')
-
         elif action == 'edit_player':
-            player_id = request.form.get('player_id', type=int)
-            new_name = request.form.get('new_name')
+            player_id = request.form.get('player_id', type=int); new_name = request.form.get('new_name')
             player = Player.query.get(player_id)
             if player and new_name:
-                player.name = new_name
-                db.session.commit()
+                player.name = new_name; db.session.commit()
                 flash(f'選手名を「{new_name}」に変更しました。')
-
         elif action == 'transfer_player':
-            player_id = request.form.get('player_id', type=int)
-            new_team_id = request.form.get('new_team_id', type=int)
-            player = Player.query.get(player_id)
-            new_team = Team.query.get(new_team_id)
+            player_id = request.form.get('player_id', type=int); new_team_id = request.form.get('new_team_id', type=int)
+            player = Player.query.get(player_id); new_team = Team.query.get(new_team_id)
             if player and new_team:
                 old_team_name = player.team.name
-                player.team_id = new_team_id
-                db.session.commit()
+                player.team_id = new_team_id; db.session.commit()
                 flash(f'選手「{player.name}」を{old_team_name}から{new_team.name}に移籍させました。')
-        
         return redirect(url_for('roster'))
-
-    teams = Team.query.all()
-    users = User.query.all()
+    teams = Team.query.all(); users = User.query.all()
     return render_template('roster.html', teams=teams, users=users)
+
 @app.route('/schedule')
 def schedule():
     team_id = request.args.get('team_id', type=int)
     query = Game.query
     if team_id:
         query = query.filter(or_(Game.home_team_id == team_id, Game.away_team_id == team_id))
-    games = query.order_by(Game.game_date.asc()).all()
+    games = query.order_by(Game.game_date.asc(), Game.start_time.asc()).all()
     all_teams = Team.query.order_by(Team.name).all()
     return render_template('schedule.html', games=games, all_teams=all_teams, selected_team_id=team_id)
 
@@ -303,17 +266,58 @@ def schedule():
 @admin_required
 def add_schedule():
     if request.method == 'POST':
+        game_date = request.form['game_date']; start_time = request.form['start_time']
         home_team_id = request.form['home_team_id']; away_team_id = request.form['away_team_id']
-        start_time = request.form['start_time'] # <-- この行を追加
-        game_password = request.form.get('game_password') # <-- パスワードを取
+        game_password = request.form.get('game_password')
         if home_team_id == away_team_id:
             flash("ホームチームとアウェイチームは同じチームを選択できません。"); return redirect(url_for('add_schedule'))
-        new_game = Game(game_date=request.form['game_date'], home_team_id=home_team_id, away_team_id=away_team_id,
-                        game_password=game_password)
+        new_game = Game(game_date=game_date, start_time=start_time, home_team_id=home_team_id, away_team_id=away_team_id, game_password=game_password)
         db.session.add(new_game); db.session.commit()
         flash("新しい試合日程が追加されました。"); return redirect(url_for('schedule'))
     teams = Team.query.all()
     return render_template('add_schedule.html', teams=teams)
+
+@app.route('/auto_schedule', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def auto_schedule():
+    if request.method == 'POST':
+        start_date_str = request.form.get('start_date'); weekdays = request.form.getlist('weekdays'); times_str = request.form.get('times')
+        if not all([start_date_str, weekdays, times_str]):
+            flash('すべての項目を入力してください。'); return redirect(url_for('auto_schedule'))
+        teams = list(Team.query.all())
+        if len(teams) < 2:
+            flash('対戦するには少なくとも2チーム必要です。'); return redirect(url_for('auto_schedule'))
+        if len(teams) % 2 != 0: teams.append(None)
+        num_teams = len(teams); num_rounds = num_teams - 1
+        matchups = []; rotating_teams = deque(teams[1:])
+        for _ in range(num_rounds):
+            round_matchups = []; round_matchups.append((teams[0], rotating_teams[-1]))
+            for i in range((num_teams // 2) - 1):
+                round_matchups.append((rotating_teams[i], rotating_teams[-(i + 2)]))
+            matchups.extend(round_matchups); rotating_teams.rotate(1)
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        selected_weekdays = [int(d) for d in weekdays]; times = [t.strip() for t in times_str.split(',')]
+        game_slots = []; current_date = start_date
+        while len(game_slots) < len(matchups):
+            if current_date.weekday() in selected_weekdays:
+                for time_slot in times: game_slots.append({'date': current_date.strftime('%Y-%m-%d'), 'time': time_slot})
+            current_date += timedelta(days=1)
+        num_games_per_slot = num_teams // 2
+        passwords_for_slot = [generate_password() for _ in range(num_games_per_slot)]
+        for i, match in enumerate(matchups):
+            home_team, away_team = match
+            if home_team is None or away_team is None: continue
+            if i < len(game_slots):
+                slot = game_slots[i]
+                password_index = i % num_games_per_slot
+                game_password = passwords_for_slot[password_index]
+                new_game = Game(game_date=slot['date'], start_time=slot['time'],
+                                home_team_id=home_team.id, away_team_id=away_team.id, game_password=game_password)
+                db.session.add(new_game)
+        db.session.commit()
+        flash(f'総当たり日程を自動作成しました。'); return redirect(url_for('schedule'))
+    return render_template('auto_schedule.html')
 
 @app.route('/team/delete/<int:team_id>', methods=['POST'])
 @login_required
@@ -323,9 +327,10 @@ def delete_team(team_id):
     if team_to_delete.logo_image:
         logo_path = os.path.join(app.config['UPLOAD_FOLDER'], team_to_delete.logo_image)
         if os.path.exists(logo_path): os.remove(logo_path)
-    Player.query.filter_by(team_id=team_id).delete()
+    Player.query.filter_by(team_id=team_id).delete(); PlayerStat.query.join(Game).filter(or_(Game.home_team_id==team_id, Game.away_team_id==team_id)).delete(synchronize_session=False)
+    Game.query.filter(or_(Game.home_team_id==team_id, Game.away_team_id==team_id)).delete(synchronize_session=False)
     db.session.delete(team_to_delete); db.session.commit()
-    flash(f'チーム「{team_to_delete.name}」と所属選手を削除しました。'); return redirect(url_for('roster'))
+    flash(f'チーム「{team_to_delete.name}」と関連データを全て削除しました。'); return redirect(url_for('roster'))
 
 @app.route('/player/delete/<int:player_id>', methods=['POST'])
 @login_required
@@ -333,8 +338,33 @@ def delete_team(team_id):
 def delete_player(player_id):
     player_to_delete = Player.query.get_or_404(player_id)
     player_name = player_to_delete.name
+    PlayerStat.query.filter_by(player_id=player_id).delete()
     db.session.delete(player_to_delete); db.session.commit()
-    flash(f'選手「{player_name}」を削除しました。'); return redirect(url_for('roster'))
+    flash(f'選手「{player_name}」と関連スタッツを削除しました。'); return redirect(url_for('roster'))
+
+@app.route('/game/delete/<int:game_id>', methods=['POST'])
+@login_required
+@admin_required
+def delete_game(game_id):
+    game_to_delete = Game.query.get_or_404(game_id)
+    PlayerStat.query.filter_by(game_id=game_id).delete()
+    db.session.delete(game_to_delete); db.session.commit()
+    flash('試合日程を削除しました。'); return redirect(url_for('schedule'))
+
+@app.route('/game/<int:game_id>/forfeit', methods=['POST'])
+@login_required
+@admin_required
+def forfeit_game(game_id):
+    game = Game.query.get_or_404(game_id); winning_team_id = request.form.get('winning_team_id', type=int)
+    if winning_team_id == game.home_team_id:
+        game.winner_id = game.home_team_id; game.loser_id = game.away_team_id
+    elif winning_team_id == game.away_team_id:
+        game.winner_id = game.away_team_id; game.loser_id = game.home_team_id
+    else: flash('無効なチームが選択されました。'); return redirect(url_for('edit_game', game_id=game_id))
+    game.is_finished = True; game.home_score = 0; game.away_score = 0
+    PlayerStat.query.filter_by(game_id=game_id).delete()
+    db.session.commit()
+    flash('不戦勝として試合結果を記録しました。'); return redirect(url_for('schedule'))
 
 @app.route('/game/<int:game_id>/edit', methods=['GET', 'POST'])
 def edit_game(game_id):
@@ -342,31 +372,24 @@ def edit_game(game_id):
     if request.method == 'POST':
         if not current_user.is_authenticated:
             flash('結果を保存するにはログインが必要です。'); return redirect(url_for('login'))
-        game.youtube_url_home = request.form.get('youtube_url_home')
-        game.youtube_url_away = request.form.get('youtube_url_away')        
+        game.youtube_url_home = request.form.get('youtube_url_home'); game.youtube_url_away = request.form.get('youtube_url_away')
         home_total_score, away_total_score = 0, 0
         for team in [game.home_team, game.away_team]:
             for player in team.players:
                 if f'player_{player.id}_pts' in request.form:
                     stat = PlayerStat.query.filter_by(game_id=game.id, player_id=player.id).first()
                     if not stat: stat = PlayerStat(game_id=game.id, player_id=player.id); db.session.add(stat)
-                    stat.pts = request.form.get(f'player_{player.id}_pts', 0, type=int)
-                    stat.ast = request.form.get(f'player_{player.id}_ast', 0, type=int)
-                    stat.reb = request.form.get(f'player_{player.id}_reb', 0, type=int)
-                    stat.stl = request.form.get(f'player_{player.id}_stl', 0, type=int)
-                    stat.blk = request.form.get(f'player_{player.id}_blk', 0, type=int)
-                    stat.foul = request.form.get(f'player_{player.id}_foul', 0, type=int)
-                    stat.turnover = request.form.get(f'player_{player.id}_turnover', 0, type=int)
-                    stat.fgm = request.form.get(f'player_{player.id}_fgm', 0, type=int)
-                    stat.fga = request.form.get(f'player_{player.id}_fga', 0, type=int)
-                    stat.three_pm = request.form.get(f'player_{player.id}_three_pm', 0, type=int)
-                    stat.three_pa = request.form.get(f'player_{player.id}_three_pa', 0, type=int)
-                    stat.ftm = request.form.get(f'player_{player.id}_ftm', 0, type=int)
+                    stat.pts = request.form.get(f'player_{player.id}_pts', 0, type=int); stat.ast = request.form.get(f'player_{player.id}_ast', 0, type=int)
+                    stat.reb = request.form.get(f'player_{player.id}_reb', 0, type=int); stat.stl = request.form.get(f'player_{player.id}_stl', 0, type=int)
+                    stat.blk = request.form.get(f'player_{player.id}_blk', 0, type=int); stat.foul = request.form.get(f'player_{player.id}_foul', 0, type=int)
+                    stat.turnover = request.form.get(f'player_{player.id}_turnover', 0, type=int); stat.fgm = request.form.get(f'player_{player.id}_fgm', 0, type=int)
+                    stat.fga = request.form.get(f'player_{player.id}_fga', 0, type=int); stat.three_pm = request.form.get(f'player_{player.id}_three_pm', 0, type=int)
+                    stat.three_pa = request.form.get(f'player_{player.id}_three_pa', 0, type=int); stat.ftm = request.form.get(f'player_{player.id}_ftm', 0, type=int)
                     stat.fta = request.form.get(f'player_{player.id}_fta', 0, type=int)
                     if team.id == game.home_team_id: home_total_score += stat.pts
                     else: away_total_score += stat.pts
         game.home_score = home_total_score; game.away_score = away_total_score
-        game.is_finished = True
+        game.is_finished = True; game.winner_id = None; game.loser_id = None
         db.session.commit()
         flash('試合結果が更新されました。'); return redirect(url_for('schedule'))
     stats = {str(stat.player_id): {'pts': stat.pts, 'ast': stat.ast, 'reb': stat.reb, 'stl': stat.stl, 'blk': stat.blk, 'foul': stat.foul, 'turnover': stat.turnover, 'fgm': stat.fgm, 'fga': stat.fga, 'three_pm': stat.three_pm, 'three_pa': stat.three_pa, 'ftm': stat.ftm, 'fta': stat.fta} for stat in PlayerStat.query.filter_by(game_id=game_id).all()}
@@ -375,46 +398,27 @@ def edit_game(game_id):
 @app.route('/stats')
 def stats_page():
     games_played = func.count(PlayerStat.game_id).label('games_played')
-    avg_pts = func.avg(PlayerStat.pts).label('avg_pts')
-    avg_ast = func.avg(PlayerStat.ast).label('avg_ast')
-    avg_reb = func.avg(PlayerStat.reb).label('avg_reb')
-    avg_stl = func.avg(PlayerStat.stl).label('avg_stl')
-    avg_blk = func.avg(PlayerStat.blk).label('avg_blk')
-    avg_foul = func.avg(PlayerStat.foul).label('avg_foul')
-    avg_turnover = func.avg(PlayerStat.turnover).label('avg_turnover')
-    avg_fgm = func.avg(PlayerStat.fgm).label('avg_fgm')
-    avg_fga = func.avg(PlayerStat.fga).label('avg_fga')
-    avg_three_pm = func.avg(PlayerStat.three_pm).label('avg_three_pm')
-    avg_three_pa = func.avg(PlayerStat.three_pa).label('avg_three_pa')
-    avg_ftm = func.avg(PlayerStat.ftm).label('avg_ftm')
-    avg_fta = func.avg(PlayerStat.fta).label('avg_fta')
-
-    total_fgm = func.sum(PlayerStat.fgm)
-    total_fga = func.sum(PlayerStat.fga)
+    avg_pts=func.avg(PlayerStat.pts).label('avg_pts'); avg_ast=func.avg(PlayerStat.ast).label('avg_ast')
+    avg_reb=func.avg(PlayerStat.reb).label('avg_reb'); avg_stl=func.avg(PlayerStat.stl).label('avg_stl')
+    avg_blk=func.avg(PlayerStat.blk).label('avg_blk'); avg_foul=func.avg(PlayerStat.foul).label('avg_foul')
+    avg_turnover=func.avg(PlayerStat.turnover).label('avg_turnover'); avg_fgm=func.avg(PlayerStat.fgm).label('avg_fgm')
+    avg_fga=func.avg(PlayerStat.fga).label('avg_fga'); avg_three_pm=func.avg(PlayerStat.three_pm).label('avg_three_pm')
+    avg_three_pa=func.avg(PlayerStat.three_pa).label('avg_three_pa'); avg_ftm=func.avg(PlayerStat.ftm).label('avg_ftm')
+    avg_fta=func.avg(PlayerStat.fta).label('avg_fta')
+    total_fgm = func.sum(PlayerStat.fgm); total_fga = func.sum(PlayerStat.fga)
     fg_percentage = case((total_fga > 0, (total_fgm * 100.0 / total_fga)), else_=0).label('fg_pct')
-
-    total_3pm = func.sum(PlayerStat.three_pm)
-    total_3pa = func.sum(PlayerStat.three_pa)
+    total_3pm = func.sum(PlayerStat.three_pm); total_3pa = func.sum(PlayerStat.three_pa)
     three_p_percentage = case((total_3pa > 0, (total_3pm * 100.0 / total_3pa)), else_=0).label('three_p_pct')
-
-    total_ftm = func.sum(PlayerStat.ftm)
-    total_fta = func.sum(PlayerStat.fta)
+    total_ftm = func.sum(PlayerStat.ftm); total_fta = func.sum(PlayerStat.fta)
     ft_percentage = case((total_fta > 0, (total_ftm * 100.0 / total_fta)), else_=0).label('ft_pct')
-    
-    # データベースから全選手のスタッツを集計
     all_stats = db.session.query(
-        Player.name.label('player_name'),
-        Team.name.label('team_name'),
-        games_played,
+        Player.name.label('player_name'), Team.name.label('team_name'), games_played,
         avg_pts, avg_ast, avg_reb, avg_stl, avg_blk, avg_foul, avg_turnover,
         avg_fgm, avg_fga, avg_three_pm, avg_three_pa, avg_ftm, avg_fta,
         fg_percentage, three_p_percentage, ft_percentage
-    ).join(Player, PlayerStat.player_id == Player.id)\
-     .join(Team, Player.team_id == Team.id)\
-     .group_by(Player.id, Team.name)\
-     .all() # ★★★ group_by に Team.name を追加 ★★★
-
+    ).join(Player, PlayerStat.player_id == Player.id).join(Team, Player.team_id == Team.id).group_by(Player.id, Team.name).all()
     return render_template('stats.html', all_stats=all_stats)
+
 # --- 6. データベース初期化コマンドと実行 ---
 @app.cli.command('init-db')
 def init_db_command():
@@ -424,149 +428,3 @@ def init_db_command():
 
 if __name__ == '__main__':
     app.run(debug=True)
-@app.route('/game/delete/<int:game_id>', methods=['POST'])
-@login_required
-@admin_required
-def delete_game(game_id):
-    game_to_delete = Game.query.get_or_404(game_id)
-    
-    # 試合に関連するスタッツも全て削除
-    PlayerStat.query.filter_by(game_id=game_id).delete()
-    
-    db.session.delete(game_to_delete)
-    db.session.commit()
-    flash('試合日程を削除しました。')
-    return redirect(url_for('schedule'))
-# --- ▼▼▼ これをapp.pyに追加 ▼▼▼ ---
-
-@app.route('/game/<int:game_id>/forfeit', methods=['POST'])
-@login_required
-@admin_required
-def forfeit_game(game_id):
-    game = Game.query.get_or_404(game_id)
-    winning_team_id = request.form.get('winning_team_id', type=int)
-
-    # 勝者と敗者を設定
-    if winning_team_id == game.home_team_id:
-        game.winner_id = game.home_team_id
-        game.loser_id = game.away_team_id
-    elif winning_team_id == game.away_team_id:
-        game.winner_id = game.away_team_id
-        game.loser_id = game.home_team_id
-    else:
-        flash('無効なチームが選択されました。')
-        return redirect(url_for('edit_game', game_id=game_id))
-
-    game.is_finished = True
-    game.home_score = 0  # スコアは0-0とする
-    game.away_score = 0
-    
-    # この試合の既存スタッツをすべて削除
-    PlayerStat.query.filter_by(game_id=game_id).delete()
-
-    db.session.commit()
-    flash('不戦勝として試合結果を記録しました。')
-    return redirect(url_for('schedule'))
-
-# --- ▲▲▲ ここまで追加 ▲▲▲ ---
-# --- ▼▼▼ これをapp.pyに追加 ▼▼▼ ---
-
-@app.route('/auto_schedule', methods=['GET', 'POST'])
-@login_required
-@admin_required
-def auto_schedule():
-    if request.method == 'POST':
-        start_date_str = request.form.get('start_date')
-        weekdays = request.form.getlist('weekdays')
-        times_str = request.form.get('times')
-        
-        if not all([start_date_str, weekdays, times_str]):
-            flash('すべての項目を入力してください。')
-            return redirect(url_for('auto_schedule'))
-
-        # --- 1. チームリストと対戦組み合わせの生成 ---
-        teams = list(Team.query.all())
-        if len(teams) < 2:
-            flash('対戦するには少なくとも2チーム必要です。')
-            return redirect(url_for('auto_schedule'))
-        
-        if len(teams) % 2 != 0:
-            teams.append(None)
-        
-        num_teams = len(teams)
-        num_rounds = num_teams - 1
-        
-        matchups = []
-        rotating_teams = deque(teams[1:])
-        
-        for _ in range(num_rounds):
-            round_matchups = []
-            round_matchups.append((teams[0], rotating_teams[-1]))
-            for i in range((num_teams // 2) - 1):
-                round_matchups.append((rotating_teams[i], rotating_teams[-(i + 2)]))
-            matchups.extend(round_matchups)
-            rotating_teams.rotate(1)
-
-        # --- 2. 試合日時のスロットを生成 ---
-        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        selected_weekdays = [int(d) for d in weekdays]
-        times = [t.strip() for t in times_str.split(',')]
-        
-        game_slots = []
-        current_date = start_date
-        while len(game_slots) < len(matchups):
-            if current_date.weekday() in selected_weekdays:
-                for time_slot in times:
-                    game_slots.append({'date': current_date.strftime('%Y-%m-%d'), 'time': time_slot})
-            current_date += timedelta(days=1)
-
-        # ★★★ ここからパスワード生成ロジックを修正 ★★★
-        # 同一時間帯に行われる試合数を計算
-        num_games_per_slot = num_teams // 2
-        
-        # 同一時間帯用のパスワードリストを生成 (AAAA, BBBB, ...)
-        # パスワードはここでランダム生成されます
-        passwords_for_slot = [generate_password() for _ in range(num_games_per_slot)]
-        # ★★★ ここまで ★★★
-
-        # --- 3. 試合日程をデータベースに保存 ---
-        for i, match in enumerate(matchups):
-            home_team, away_team = match
-            if home_team is None or away_team is None:
-                continue
-
-            if i < len(game_slots):
-                slot = game_slots[i]
-                
-                # ★★★ パスワードの割り当て方法を修正 ★★★
-                # 試合のインデックスを、同一時間帯の試合数で割った余りでパスワードを決定
-                password_index = i % num_games_per_slot
-                game_password = passwords_for_slot[password_index]
-
-                new_game = Game(
-                    game_date=slot['date'],
-                    start_time=slot['time'],
-                    home_team_id=home_team.id,
-                    away_team_id=away_team.id,
-                    game_password=game_password
-                )
-                db.session.add(new_game)
-
-        db.session.commit()
-        flash(f'総当たり日程を自動作成しました。')
-        return redirect(url_for('schedule'))
-
-    return render_template('auto_schedule.html')
-# --- ▼▼▼ この関数をapp.pyに追加 ▼▼▼ ---
-
-def generate_password(length=4):
-    """ランダムな英数字のパスワードを生成する関数"""
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
-
-# --- ▲▲▲ ここまで ▲▲▲ ---
-
-
-# --- 5. ルート（ページの表示と処理） ---
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    # ...
