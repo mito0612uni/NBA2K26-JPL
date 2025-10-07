@@ -1,4 +1,6 @@
 import os
+import random  # <-- これを追加
+import string  # <-- これを追加
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, case, or_
@@ -555,3 +557,16 @@ def auto_schedule():
         return redirect(url_for('schedule'))
 
     return render_template('auto_schedule.html')
+# --- ▼▼▼ この関数をapp.pyに追加 ▼▼▼ ---
+
+def generate_password(length=4):
+    """ランダムな英数字のパスワードを生成する関数"""
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+# --- ▲▲▲ ここまで ▲▲▲ ---
+
+
+# --- 5. ルート（ページの表示と処理） ---
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    # ...
