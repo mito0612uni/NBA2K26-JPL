@@ -74,6 +74,7 @@ class Game(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     game_date = db.Column(db.String(50))
     start_time = db.Column(db.String(20), nullable=True) # <-- この行を追加
+    game_password = db.Column(db.String(50), nullable=True)
     home_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=False)
     away_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=False)
     home_score = db.Column(db.Integer, default=0)
@@ -302,9 +303,11 @@ def add_schedule():
     if request.method == 'POST':
         home_team_id = request.form['home_team_id']; away_team_id = request.form['away_team_id']
         start_time = request.form['start_time'] # <-- この行を追加
+        game_password = request.form.get('game_password') # <-- パスワードを取
         if home_team_id == away_team_id:
             flash("ホームチームとアウェイチームは同じチームを選択できません。"); return redirect(url_for('add_schedule'))
-        new_game = Game(game_date=request.form['game_date'], home_team_id=home_team_id, away_team_id=away_team_id)
+        new_game = Game(game_date=request.form['game_date'], home_team_id=home_team_id, away_team_id=away_team_id,
+                        game_password=game_password)
         db.session.add(new_game); db.session.commit()
         flash("新しい試合日程が追加されました。"); return redirect(url_for('schedule'))
     teams = Team.query.all()
@@ -472,8 +475,8 @@ def forfeit_game(game_id):
 def auto_schedule():
     if request.method == 'POST':
         start_date_str = request.form.get('start_date')
-        weekdays = request.form.getlist('weekdays') # [ '1', '3', '6' ] (月曜=0)
-        times_str = request.form.get('times') # "22:40, 23:20"
+        weekdays = request.form.getlist('weekdays')
+        times_str = request.form.get('times')
         
         if not all([start_date_str, weekdays, times_str]):
             flash('すべての項目を入力してください。')
@@ -485,7 +488,6 @@ def auto_schedule():
             flash('対戦するには少なくとも2チーム必要です。')
             return redirect(url_for('auto_schedule'))
         
-        # チーム数が奇数なら、ダミーの「休み」チームを追加
         if len(teams) % 2 != 0:
             teams.append(None)
         
@@ -497,20 +499,16 @@ def auto_schedule():
         
         for _ in range(num_rounds):
             round_matchups = []
-            # 固定チーム vs 回転の最後のチーム
             round_matchups.append((teams[0], rotating_teams[-1]))
-            
-            # 残りのチームの対戦
             for i in range((num_teams // 2) - 1):
                 round_matchups.append((rotating_teams[i], rotating_teams[-(i + 2)]))
-            
             matchups.extend(round_matchups)
-            rotating_teams.rotate(1) # チームを一つ回転
+            rotating_teams.rotate(1)
 
         # --- 2. 試合日時のスロットを生成 ---
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        selected_weekdays = [int(d) for d in weekdays] # [1, 3, 6]
-        times = [t.strip() for t in times_str.split(',')] # ["22:40", "23:20"]
+        selected_weekdays = [int(d) for d in weekdays]
+        times = [t.strip() for t in times_str.split(',')]
         
         game_slots = []
         current_date = start_date
@@ -520,27 +518,40 @@ def auto_schedule():
                     game_slots.append({'date': current_date.strftime('%Y-%m-%d'), 'time': time_slot})
             current_date += timedelta(days=1)
 
+        # ★★★ ここからパスワード生成ロジックを修正 ★★★
+        # 同一時間帯に行われる試合数を計算
+        num_games_per_slot = num_teams // 2
+        
+        # 同一時間帯用のパスワードリストを生成 (AAAA, BBBB, ...)
+        # パスワードはここでランダム生成されます
+        passwords_for_slot = [generate_password() for _ in range(num_games_per_slot)]
+        # ★★★ ここまで ★★★
+
         # --- 3. 試合日程をデータベースに保存 ---
         for i, match in enumerate(matchups):
             home_team, away_team = match
-            # どちらかが「休み」チームなら日程を作成しない
             if home_team is None or away_team is None:
                 continue
 
             if i < len(game_slots):
                 slot = game_slots[i]
+                
+                # ★★★ パスワードの割り当て方法を修正 ★★★
+                # 試合のインデックスを、同一時間帯の試合数で割った余りでパスワードを決定
+                password_index = i % num_games_per_slot
+                game_password = passwords_for_slot[password_index]
+
                 new_game = Game(
                     game_date=slot['date'],
                     start_time=slot['time'],
                     home_team_id=home_team.id,
-                    away_team_id=away_team.id
+                    away_team_id=away_team.id,
+                    game_password=game_password
                 )
                 db.session.add(new_game)
 
         db.session.commit()
-        flash(f'{len(matchups)}試合の総当たり日程を自動作成しました。')
+        flash(f'総当たり日程を自動作成しました。')
         return redirect(url_for('schedule'))
 
     return render_template('auto_schedule.html')
-
-# --- ▲▲▲ ここまで追加 ▲▲▲ ---

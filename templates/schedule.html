@@ -39,6 +39,15 @@
           <span style="margin-right: 5px;">{{ game.away_team.name }} <small>(Away)</small></span>
           {% if game.away_team.logo_image %}<img src="{{ url_for('static', filename='logos/' + game.away_team.logo_image) }}" alt="" style="height: 20px; vertical-align: middle;">{% endif %}
         </div>
+
+        {# ★★★ ここからが修正・追加部分 ★★★ #}
+        <div style="min-width: 100px; text-align: center; font-weight: bold; color: #dc3545;">
+          {% if game.game_password %}
+            パスワード: {{ game.game_password }}
+          {% endif %}
+        </div>
+        {# ★★★ ここまで ★★★ #}
+        
         <div style="white-space: nowrap;">
           {% if game.youtube_url_home %}<a href="{{ game.youtube_url_home }}" target="_blank" title="{{ game.home_team.name }}視点">[動画 H]</a>{% endif %}
           {% if game.youtube_url_away %}<a href="{{ game.youtube_url_away }}" target="_blank" title="{{ game.away_team.name }}視点">[動画 A]</a>{% endif %}
