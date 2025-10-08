@@ -23,7 +23,7 @@
         <tr>
             <td>{{ loop.index }}</td>
             <td>
-                {# ★★★ ここからが修正部分 ★★★ #}
+                {# ★★★ ロゴ表示のif文を修正 ★★★ #}
                 {% if row.team and row.team.logo_image %}
                     <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
                 {% endif %}
@@ -36,9 +36,8 @@
             {% else %}
               <td>{{ row.league }}</td>
             {% endif %}
-            {# ★★★ ここまで ★★★ #}
             <td>{{ row.wins }}</td><td>{{ row.losses }}</td><td>{{ row.points }}</td>
-            <td>{{ row.avg_pf }}</td><td>{{ row.avg_pa }}</td><td>{{ row.diff }}</td>
+            <td>{{ "%.1f"|format(row.avg_pf) }}</td><td>{{ "%.1f"|format(row.avg_pa) }}</td><td>{{ row.diff }}</td>
         </tr>
         {% endfor %}
     </tbody>
@@ -59,6 +58,7 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>
+            {# ★★★ ロゴ表示のif文を修正 ★★★ #}
             {% if row.team and row.team.logo_image %}
               <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
             {% endif %}
@@ -80,6 +80,7 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>
+            {# ★★★ ロゴ表示のif文を修正 ★★★ #}
             {% if row.team and row.team.logo_image %}
               <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
             {% endif %}
