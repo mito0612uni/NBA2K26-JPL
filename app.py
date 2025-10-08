@@ -119,65 +119,106 @@ def calculate_standings(league_filter=None):
     standings = []
     for team in teams:
         wins, losses, points_for, points_against = 0, 0, 0, 0
+        
+        # ★★★ 変更点: スタッツ計算用の試合数をカウントする変数を追加 ★★★
+        stats_games_played = 0
+
+        # ホームゲームの集計
         home_games = Game.query.filter_by(home_team_id=team.id, is_finished=True).all()
         for game in home_games:
-            points_for += game.home_score; points_against += game.away_score
+            # 不戦勝でない試合のみ、得点と試合数を加算
+            if game.winner_id is None:
+                points_for += game.home_score
+                points_against += game.away_score
+                stats_games_played += 1
+
             if game.winner_id == team.id: wins += 1
             elif game.loser_id == team.id: losses += 1
             elif game.home_score > game.away_score: wins += 1
             elif game.home_score < game.away_score: losses += 1
+        
+        # アウェイゲームの集計
         away_games = Game.query.filter_by(away_team_id=team.id, is_finished=True).all()
         for game in away_games:
-            points_for += game.away_score; points_against += game.home_score
+            # 不戦勝でない試合のみ、得点と試合数を加算
+            if game.winner_id is None:
+                points_for += game.away_score
+                points_against += game.home_score
+                stats_games_played += 1
+            
             if game.winner_id == team.id: wins += 1
             elif game.loser_id == team.id: losses += 1
             elif game.away_score > game.home_score: wins += 1
             elif game.away_score < game.home_score: losses += 1
-        games_played = wins + losses
+        
         points = (wins * 2) + (losses * 1)
+        
         standings.append({
             'team': team, 'team_name': team.name, 'league': team.league, 'wins': wins, 'losses': losses, 'points': points,
-            'avg_pf': round(points_for / games_played, 1) if games_played > 0 else 0,
-            'avg_pa': round(points_against / games_played, 1) if games_played > 0 else 0,
+            'avg_pf': round(points_for / stats_games_played, 1) if stats_games_played > 0 else 0,
+            'avg_pa': round(points_against / stats_games_played, 1) if stats_games_played > 0 else 0,
             'diff': points_for - points_against,
+            'stats_games_played': stats_games_played # チームスタッツ計算用に渡す
         })
     standings.sort(key=lambda x: (x['points'], x['diff']), reverse=True)
     return standings
-
 def calculate_team_stats():
+    """チームごとの総合成績を集計する関数"""
     team_stats_list = []
-    standings_info = calculate_standings()
+    standings_info = calculate_standings() 
+
+    # チームごとのシュート関連スタッツの合計を一度に集計
     shooting_stats_query = db.session.query(
-        Player.team_id, func.sum(PlayerStat.pts).label('total_pts'),
-        func.sum(PlayerStat.ast).label('total_ast'), func.sum(PlayerStat.reb).label('total_reb'),
-        func.sum(PlayerStat.stl).label('total_stl'), func.sum(PlayerStat.blk).label('total_blk'),
-        func.sum(PlayerStat.foul).label('total_foul'), func.sum(PlayerStat.turnover).label('total_turnover'),
-        func.sum(PlayerStat.fgm).label('total_fgm'), func.sum(PlayerStat.fga).label('total_fga'),
-        func.sum(PlayerStat.three_pm).label('total_3pm'), func.sum(PlayerStat.three_pa).label('total_3pa'),
-        func.sum(PlayerStat.ftm).label('total_ftm'), func.sum(PlayerStat.fta).label('total_fta')
+        Player.team_id,
+        func.sum(PlayerStat.pts).label('total_pts'),
+        func.sum(PlayerStat.ast).label('total_ast'),
+        func.sum(PlayerStat.reb).label('total_reb'),
+        func.sum(PlayerStat.stl).label('total_stl'),
+        func.sum(PlayerStat.blk).label('total_blk'),
+        func.sum(PlayerStat.foul).label('total_foul'),
+        func.sum(PlayerStat.turnover).label('total_turnover'),
+        func.sum(PlayerStat.fgm).label('total_fgm'),
+        func.sum(PlayerStat.fga).label('total_fga'),
+        func.sum(PlayerStat.three_pm).label('total_3pm'),
+        func.sum(PlayerStat.three_pa).label('total_3pa'),
+        func.sum(PlayerStat.ftm).label('total_ftm'),
+        func.sum(PlayerStat.fta).label('total_fta')
     ).join(Player).group_by(Player.team_id).all()
+    
     shooting_map = {s.team_id: s for s in shooting_stats_query}
+
     for team_standings in standings_info:
         team_obj = team_standings.get('team')
-        if not team_obj: continue
-        games_played = team_standings['wins'] + team_standings['losses']
+        if not team_obj:
+            continue
+
+        # ★★★ ここからが修正部分 ★★★
+        # 不戦勝を除いた、スタッツ計算対象の試合数を取得
+        stats_games_played = team_standings.get('stats_games_played', 0)
         team_shooting = shooting_map.get(team_obj.id)
+
         stats_dict = team_standings.copy()
-        if games_played > 0 and team_shooting:
+
+        # スタッツ計算対象の試合数が0より大きい場合のみ、詳細スタッツを計算
+        if stats_games_played > 0 and team_shooting:
             stats_dict.update({
-                'avg_ast': team_shooting.total_ast / games_played, 'avg_reb': team_shooting.total_reb / games_played,
-                'avg_stl': team_shooting.total_stl / games_played, 'avg_blk': team_shooting.total_blk / games_played,
-                'avg_foul': team_shooting.total_foul / games_played, 'avg_turnover': team_shooting.total_turnover / games_played,
-                'avg_fgm': team_shooting.total_fgm / games_played, 'avg_fga': team_shooting.total_fga / games_played,
-                'avg_three_pm': team_shooting.total_3pm / games_played, 'avg_three_pa': team_shooting.total_3pa / games_played,
-                'avg_ftm': team_shooting.total_ftm / games_played, 'avg_fta': team_shooting.total_fta / games_played,
+                # 全ての平均スタッツを stats_games_played で割るように変更
+                'avg_ast': team_shooting.total_ast / stats_games_played,
+                'avg_reb': team_shooting.total_reb / stats_games_played,
+                'avg_stl': team_shooting.total_stl / stats_games_played,
+                'avg_blk': team_shooting.total_blk / stats_games_played,
+                'avg_foul': team_shooting.total_foul / stats_games_played,
+                'avg_turnover': team_shooting.total_turnover / stats_games_played,
+                'avg_fgm': team_shooting.total_fgm / stats_games_played,
+                'avg_fga': team_shooting.total_fga / stats_games_played,
+                'avg_three_pm': team_shooting.total_3pm / stats_games_played,
+                'avg_three_pa': team_shooting.total_3pa / stats_games_played,
+                'avg_ftm': team_shooting.total_ftm / stats_games_played,
+                'avg_fta': team_shooting.total_fta / stats_games_played,
+                # 成功率は合計値から計算するので変更なし
                 'fg_pct': (team_shooting.total_fgm / team_shooting.total_fga * 100) if team_shooting.total_fga > 0 else 0,
                 'three_p_pct': (team_shooting.total_3pm / team_shooting.total_3pa * 100) if team_shooting.total_3pa > 0 else 0,
-                'ft_pct': (team_shooting.total_ftm / team_shooting.total_fta * 100) if team_shooting.total_fta > 0 else 0,
-            })
-        team_stats_list.append(stats_dict)
-    return team_stats_list
-
+                'ft_pct': (team_shooting.total_ftm / team_shooting.total_fta * 100) if team_shooting.total_fta > 0
 def get_stats_leaders():
     leaders = {}
     stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
