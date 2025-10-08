@@ -498,3 +498,67 @@ def init_db_command():
 
 if __name__ == '__main__':
     app.run(debug=True)
+def calculate_team_stats():
+    """チームごとの総合成績を集計する関数"""
+    teams = Team.query.all()
+    team_stats_list = []
+
+    # 全チームのシュート関連スタッツを一度に集計
+    shooting_stats_query = db.session.query(
+        Player.team_id,
+        func.sum(PlayerStat.pts).label('total_pts'),
+        func.sum(PlayerStat.ast).label('total_ast'),
+        func.sum(PlayerStat.reb).label('total_reb'),
+        func.sum(PlayerStat.stl).label('total_stl'),
+        func.sum(PlayerStat.blk).label('total_blk'),
+        func.sum(PlayerStat.foul).label('total_foul'),
+        func.sum(PlayerStat.turnover).label('total_turnover'),
+        func.sum(PlayerStat.fgm).label('total_fgm'),
+        func.sum(PlayerStat.fga).label('total_fga'),
+        func.sum(PlayerStat.three_pm).label('total_3pm'),
+        func.sum(PlayerStat.three_pa).label('total_3pa'),
+        func.sum(PlayerStat.ftm).label('total_ftm'),
+        func.sum(PlayerStat.fta).label('total_fta')
+    ).join(Player).group_by(Player.team_id).all()
+    
+    shooting_map = {s.team_id: s for s in shooting_stats_query}
+
+    for team in teams:
+        standings_info = calculate_standings()
+        team_standings = next((item for item in standings_info if item['team_name'] == team.name), None)
+        
+        if not team_standings:
+            continue
+
+        games_played = team_standings['wins'] + team_standings['losses']
+        team_shooting = shooting_map.get(team.id)
+
+        stats_dict = {
+            'name': team.name, 'league': team.league,
+            'wins': team_standings['wins'], 'losses': team_standings['losses'], 'points': team_standings['points'],
+            'avg_pf': team_standings['avg_pf'], 'avg_pa': team_standings['avg_pa'], 'diff': team_standings['diff']
+        }
+
+        if games_played > 0 and team_shooting:
+            stats_dict.update({
+                'avg_pts': team_shooting.total_pts / games_played,
+                'avg_ast': team_shooting.total_ast / games_played,
+                'avg_reb': team_shooting.total_reb / games_played,
+                'avg_stl': team_shooting.total_stl / games_played,
+                'avg_blk': team_shooting.total_blk / games_played,
+                'avg_foul': team_shooting.total_foul / games_played,
+                'avg_turnover': team_shooting.total_turnover / games_played,
+                'avg_fgm': team_shooting.total_fgm / games_played,
+                'avg_fga': team_shooting.total_fga / games_played,
+                'avg_three_pm': team_shooting.total_3pm / games_played,
+                'avg_three_pa': team_shooting.total_3pa / games_played,
+                'avg_ftm': team_shooting.total_ftm / games_played,
+                'avg_fta': team_shooting.total_fta / games_played,
+                'fg_pct': (team_shooting.total_fgm / team_shooting.total_fga * 100) if team_shooting.total_fga > 0 else 0,
+                'three_p_pct': (team_shooting.total_3pm / team_shooting.total_3pa * 100) if team_shooting.total_3pa > 0 else 0,
+                'ft_pct': (team_shooting.total_ftm / team_shooting.total_fta * 100) if team_shooting.total_fta > 0 else 0,
+            })
+        
+        team_stats_list.append(stats_dict)
+        
+    return team_stats_list
