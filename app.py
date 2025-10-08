@@ -144,6 +144,40 @@ def calculate_standings(league_filter=None):
     standings.sort(key=lambda x: (x['points'], x['diff']), reverse=True)
     return standings
 
+def calculate_team_stats():
+    team_stats_list = []
+    standings_info = calculate_standings()
+    shooting_stats_query = db.session.query(
+        Player.team_id, func.sum(PlayerStat.pts).label('total_pts'),
+        func.sum(PlayerStat.ast).label('total_ast'), func.sum(PlayerStat.reb).label('total_reb'),
+        func.sum(PlayerStat.stl).label('total_stl'), func.sum(PlayerStat.blk).label('total_blk'),
+        func.sum(PlayerStat.foul).label('total_foul'), func.sum(PlayerStat.turnover).label('total_turnover'),
+        func.sum(PlayerStat.fgm).label('total_fgm'), func.sum(PlayerStat.fga).label('total_fga'),
+        func.sum(PlayerStat.three_pm).label('total_3pm'), func.sum(PlayerStat.three_pa).label('total_3pa'),
+        func.sum(PlayerStat.ftm).label('total_ftm'), func.sum(PlayerStat.fta).label('total_fta')
+    ).join(Player).group_by(Player.team_id).all()
+    shooting_map = {s.team_id: s for s in shooting_stats_query}
+    for team_standings in standings_info:
+        team_obj = team_standings.get('team')
+        if not team_obj: continue
+        games_played = team_standings['wins'] + team_standings['losses']
+        team_shooting = shooting_map.get(team_obj.id)
+        stats_dict = team_standings.copy()
+        if games_played > 0 and team_shooting:
+            stats_dict.update({
+                'avg_ast': team_shooting.total_ast / games_played, 'avg_reb': team_shooting.total_reb / games_played,
+                'avg_stl': team_shooting.total_stl / games_played, 'avg_blk': team_shooting.total_blk / games_played,
+                'avg_foul': team_shooting.total_foul / games_played, 'avg_turnover': team_shooting.total_turnover / games_played,
+                'avg_fgm': team_shooting.total_fgm / games_played, 'avg_fga': team_shooting.total_fga / games_played,
+                'avg_three_pm': team_shooting.total_3pm / games_played, 'avg_three_pa': team_shooting.total_3pa / games_played,
+                'avg_ftm': team_shooting.total_ftm / games_played, 'avg_fta': team_shooting.total_fta / games_played,
+                'fg_pct': (team_shooting.total_fgm / team_shooting.total_fga * 100) if team_shooting.total_fga > 0 else 0,
+                'three_p_pct': (team_shooting.total_3pm / team_shooting.total_3pa * 100) if team_shooting.total_3pa > 0 else 0,
+                'ft_pct': (team_shooting.total_ftm / team_shooting.total_fta * 100) if team_shooting.total_fta > 0 else 0,
+            })
+        team_stats_list.append(stats_dict)
+    return team_stats_list
+
 def get_stats_leaders():
     leaders = {}
     stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
@@ -193,13 +227,13 @@ def index():
     return render_template('index.html', overall_standings=overall_standings,
                            league_a_standings=league_a_standings, league_b_standings=league_b_standings,
                            leaders=stats_leaders, upcoming_games=upcoming_games, teams_data=teams_data)
+
 @app.route('/roster', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def roster():
     if request.method == 'POST':
         action = request.form.get('action')
-
         if action == 'add_team':
             team_name = request.form.get('team_name'); league = request.form.get('league')
             logo_filename = None
@@ -208,29 +242,20 @@ def roster():
                 if file and file.filename != '' and allowed_file(file.filename):
                     logo_filename = secure_filename(file.filename)
                     file.save(os.path.join(app.config['UPLOAD_FOLDER'], logo_filename))
-                elif file.filename != '':
-                    flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
-
+                elif file.filename != '': flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
             if team_name and league:
                 if not Team.query.filter_by(name=team_name).first():
                     new_team = Team(name=team_name, league=league, logo_image=logo_filename)
-                    db.session.add(new_team)
-                    db.session.commit() # チームを先に保存してIDを確定
+                    db.session.add(new_team); db.session.commit()
                     flash(f'チーム「{team_name}」が{league}に登録されました。')
-
-                    # ★★★ ここからが抜けていた部分です ★★★
-                    # 同時に登録された選手を追加
                     for i in range(1, 11):
                         player_name = request.form.get(f'player_name_{i}')
-                        if player_name: # 選手名が入力されていた場合のみ
+                        if player_name:
                             new_player = Player(name=player_name, team_id=new_team.id)
                             db.session.add(new_player)
-                    db.session.commit() # 追加した選手をまとめて保存
-                    # ★★★ ここまで ★★★
-
+                    db.session.commit()
                 else: flash(f'チーム「{team_name}」は既に存在します。')
             else: flash('チーム名とリーグを選択してください。')
-
         elif action == 'add_player':
             player_name = request.form.get('player_name'); team_id = request.form.get('team_id')
             if player_name and team_id:
@@ -238,7 +263,6 @@ def roster():
                 db.session.add(new_player); db.session.commit()
                 flash(f'選手「{player_name}」が登録されました。')
             else: flash('選手名とチームを選択してください。')
-        
         elif action == 'promote_user':
             username_to_promote = request.form.get('username_to_promote')
             if username_to_promote:
@@ -250,14 +274,12 @@ def roster():
                     else: flash(f'ユーザー「{username_to_promote}」は既に管理者です。')
                 else: flash(f'ユーザー「{username_to_promote}」が見つかりません。')
             else: flash('ユーザー名を入力してください。')
-
         elif action == 'edit_player':
             player_id = request.form.get('player_id', type=int); new_name = request.form.get('new_name')
             player = Player.query.get(player_id)
             if player and new_name:
                 player.name = new_name; db.session.commit()
                 flash(f'選手名を「{new_name}」に変更しました。')
-
         elif action == 'transfer_player':
             player_id = request.form.get('player_id', type=int); new_team_id = request.form.get('new_team_id', type=int)
             player = Player.query.get(player_id); new_team = Team.query.get(new_team_id)
@@ -265,11 +287,8 @@ def roster():
                 old_team_name = player.team.name
                 player.team_id = new_team_id; db.session.commit()
                 flash(f'選手「{player.name}」を{old_team_name}から{new_team.name}に移籍させました。')
-        
         return redirect(url_for('roster'))
-
-    teams = Team.query.all()
-    users = User.query.all()
+    teams = Team.query.all(); users = User.query.all()
     return render_template('roster.html', teams=teams, users=users)
 
 @app.route('/schedule')
@@ -303,90 +322,43 @@ def add_schedule():
 @admin_required
 def auto_schedule():
     if request.method == 'POST':
-        start_date_str = request.form.get('start_date')
-        weekdays = request.form.getlist('weekdays')
-        times_str = request.form.get('times')
-        
+        start_date_str = request.form.get('start_date'); weekdays = request.form.getlist('weekdays'); times_str = request.form.get('times')
         if not all([start_date_str, weekdays, times_str]):
             flash('すべての項目を入力してください。'); return redirect(url_for('auto_schedule'))
-
-        # --- 1. チームリストの準備 ---
         teams = list(Team.query.all())
         if len(teams) < 2:
             flash('対戦するには少なくとも2チーム必要です。'); return redirect(url_for('auto_schedule'))
-        
-        # チーム数が奇数ならダミーチームを追加
-        if len(teams) % 2 != 0:
-            teams.append(None)
-        
-        num_teams = len(teams)
-        num_rounds = num_teams - 1
-        
-        # ★★★ 変更点1: 対戦組み合わせを「ラウンドごと」にまとめる ★★★
-        all_rounds = []
-        rotating_teams = deque(teams[1:])
+        if len(teams) % 2 != 0: teams.append(None)
+        num_teams = len(teams); num_rounds = num_teams - 1
+        all_rounds = []; rotating_teams = deque(teams[1:])
         for _ in range(num_rounds):
-            round_matchups = []
-            # 固定チーム vs 回転の最後のチーム
-            round_matchups.append((teams[0], rotating_teams[-1]))
-            # 残りのチームの対戦
+            round_matchups = []; round_matchups.append((teams[0], rotating_teams[-1]))
             for i in range((num_teams // 2) - 1):
                 round_matchups.append((rotating_teams[i], rotating_teams[-(i + 2)]))
-            all_rounds.append(round_matchups)
-            rotating_teams.rotate(1) # チームを一つ回転
-
-        # --- 2. 試合日時のスロットを生成 ---
+            all_rounds.append(round_matchups); rotating_teams.rotate(1)
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        selected_weekdays = [int(d) for d in weekdays]
-        times = [t.strip() for t in times_str.split(',')]
-        
-        # 必要な試合スロットの総数を計算
-        total_slots_needed = len(all_rounds)
-        time_slots = []
-        current_date = start_date
+        selected_weekdays = [int(d) for d in weekdays]; times = [t.strip() for t in times_str.split(',')]
+        total_slots_needed = len(all_rounds); time_slots = []; current_date = start_date
         while len(time_slots) < total_slots_needed:
             if current_date.weekday() in selected_weekdays:
                 for time_slot in times:
                     if len(time_slots) < total_slots_needed:
                          time_slots.append({'date': current_date.strftime('%Y-%-m-%d'), 'time': time_slot})
             current_date += timedelta(days=1)
-
-        # --- 3. パスワードの準備 ---
-        num_games_per_slot = num_teams // 2
-        alphabet = 'abcdefghijklmnopqrstuvwxyz'
+        num_games_per_slot = num_teams // 2; alphabet = 'abcdefghijklmnopqrstuvwxyz'
         passwords_for_slot = [(alphabet[i % len(alphabet)] * 4) for i in range(num_games_per_slot)]
-
-        # ★★★ 変更点2: ラウンドごとに試合を割り当てる ★★★
-        # --- 4. 試合日程をデータベースに保存 ---
         games_created_count = 0
-        # 1ラウンドずつループ処理
         for round_index, matchups_in_round in enumerate(all_rounds):
-            # このラウンドが割り当てられるべき日時スロットを取得
             slot = time_slots[round_index]
-            
-            # ラウンド内の各対戦をループ処理
             for match_index, match in enumerate(matchups_in_round):
                 home_team, away_team = match
-                if home_team is None or away_team is None:
-                    continue
-                
-                # パスワードを割り当て
+                if home_team is None or away_team is None: continue
                 game_password = passwords_for_slot[match_index]
-
-                new_game = Game(
-                    game_date=slot['date'],
-                    start_time=slot['time'],
-                    home_team_id=home_team.id,
-                    away_team_id=away_team.id,
-                    game_password=game_password
-                )
-                db.session.add(new_game)
-                games_created_count += 1
-
+                new_game = Game(game_date=slot['date'], start_time=slot['time'],
+                                home_team_id=home_team.id, away_team_id=away_team.id, game_password=game_password)
+                db.session.add(new_game); games_created_count += 1
         db.session.commit()
-        flash(f'{games_created_count}試合の総当たり日程を自動作成しました。')
-        return redirect(url_for('schedule'))
-
+        flash(f'{games_created_count}試合の総当たり日程を自動作成しました。'); return redirect(url_for('schedule'))
     return render_template('auto_schedule.html')
 
 @app.route('/team/delete/<int:team_id>', methods=['POST'])
@@ -443,12 +415,12 @@ def edit_game(game_id):
         if not current_user.is_authenticated:
             flash('結果を保存するにはログインが必要です。'); return redirect(url_for('login'))
         game.youtube_url_home = request.form.get('youtube_url_home'); game.youtube_url_away = request.form.get('youtube_url_away')
+        PlayerStat.query.filter_by(game_id=game_id).delete()
         home_total_score, away_total_score = 0, 0
         for team in [game.home_team, game.away_team]:
             for player in team.players:
                 if f'player_{player.id}_pts' in request.form:
-                    stat = PlayerStat.query.filter_by(game_id=game.id, player_id=player.id).first()
-                    if not stat: stat = PlayerStat(game_id=game.id, player_id=player.id); db.session.add(stat)
+                    stat = PlayerStat(game_id=game.id, player_id=player.id); db.session.add(stat)
                     stat.pts = request.form.get(f'player_{player.id}_pts', 0, type=int); stat.ast = request.form.get(f'player_{player.id}_ast', 0, type=int)
                     stat.reb = request.form.get(f'player_{player.id}_reb', 0, type=int); stat.stl = request.form.get(f'player_{player.id}_stl', 0, type=int)
                     stat.blk = request.form.get(f'player_{player.id}_blk', 0, type=int); stat.foul = request.form.get(f'player_{player.id}_foul', 0, type=int)
@@ -465,38 +437,30 @@ def edit_game(game_id):
     stats = {str(stat.player_id): {'pts': stat.pts, 'ast': stat.ast, 'reb': stat.reb, 'stl': stat.stl, 'blk': stat.blk, 'foul': stat.foul, 'turnover': stat.turnover, 'fgm': stat.fgm, 'fga': stat.fga, 'three_pm': stat.three_pm, 'three_pa': stat.three_pa, 'ftm': stat.ftm, 'fta': stat.fta} for stat in PlayerStat.query.filter_by(game_id=game_id).all()}
     return render_template('game_edit.html', game=game, stats=stats)
 
-# ... (edit_game 関数の下) ...
-
 @app.route('/stats')
 def stats_page():
-    # チーム成績の集計
     team_stats = calculate_team_stats()
-    
-    # 個人成績の集計
     games_played = func.count(PlayerStat.game_id).label('games_played')
-    avg_pts = func.avg(PlayerStat.pts).label('avg_pts'); avg_ast = func.avg(PlayerStat.ast).label('avg_ast')
-    avg_reb = func.avg(PlayerStat.reb).label('avg_reb'); avg_stl = func.avg(PlayerStat.stl).label('avg_stl')
-    avg_blk = func.avg(PlayerStat.blk).label('avg_blk'); avg_foul = func.avg(PlayerStat.foul).label('avg_foul')
-    avg_turnover = func.avg(PlayerStat.turnover).label('avg_turnover'); avg_fgm = func.avg(PlayerStat.fgm).label('avg_fgm')
-    avg_fga = func.avg(PlayerStat.fga).label('avg_fga'); avg_three_pm = func.avg(PlayerStat.three_pm).label('avg_three_pm')
-    avg_three_pa = func.avg(PlayerStat.three_pa).label('avg_three_pa'); avg_ftm = func.avg(PlayerStat.ftm).label('avg_ftm')
-    avg_fta = func.avg(PlayerStat.fta).label('avg_fta')
+    avg_pts=func.avg(PlayerStat.pts).label('avg_pts'); avg_ast=func.avg(PlayerStat.ast).label('avg_ast')
+    avg_reb=func.avg(PlayerStat.reb).label('avg_reb'); avg_stl=func.avg(PlayerStat.stl).label('avg_stl')
+    avg_blk=func.avg(PlayerStat.blk).label('avg_blk'); avg_foul=func.avg(PlayerStat.foul).label('avg_foul')
+    avg_turnover=func.avg(PlayerStat.turnover).label('avg_turnover'); avg_fgm=func.avg(PlayerStat.fgm).label('avg_fgm')
+    avg_fga=func.avg(PlayerStat.fga).label('avg_fga'); avg_three_pm=func.avg(PlayerStat.three_pm).label('avg_three_pm')
+    avg_three_pa=func.avg(PlayerStat.three_pa).label('avg_three_pa'); avg_ftm=func.avg(PlayerStat.ftm).label('avg_ftm')
+    avg_fta=func.avg(PlayerStat.fta).label('avg_fta')
     total_fgm = func.sum(PlayerStat.fgm); total_fga = func.sum(PlayerStat.fga)
     fg_percentage = case((total_fga > 0, (total_fgm * 100.0 / total_fga)), else_=0).label('fg_pct')
     total_3pm = func.sum(PlayerStat.three_pm); total_3pa = func.sum(PlayerStat.three_pa)
     three_p_percentage = case((total_3pa > 0, (total_3pm * 100.0 / total_3pa)), else_=0).label('three_p_pct')
     total_ftm = func.sum(PlayerStat.ftm); total_fta = func.sum(PlayerStat.fta)
     ft_percentage = case((total_fta > 0, (total_ftm * 100.0 / total_fta)), else_=0).label('ft_pct')
-    
     individual_stats = db.session.query(
         Player.name.label('player_name'), Team.name.label('team_name'), games_played,
         avg_pts, avg_ast, avg_reb, avg_stl, avg_blk, avg_foul, avg_turnover,
         avg_fgm, avg_fga, avg_three_pm, avg_three_pa, avg_ftm, avg_fta,
         fg_percentage, three_p_percentage, ft_percentage
     ).join(Player, PlayerStat.player_id == Player.id).join(Team, Player.team_id == Team.id).group_by(Player.id, Team.name).all()
-     
     return render_template('stats.html', team_stats=team_stats, individual_stats=individual_stats)
-
 
 # --- 6. データベース初期化コマンドと実行 ---
 @app.cli.command('init-db')
@@ -507,67 +471,3 @@ def init_db_command():
 
 if __name__ == '__main__':
     app.run(debug=True)
-    def calculate_team_stats():
-    """チームごとの総合成績を集計する関数"""
-    teams = Team.query.all()
-    team_stats_list = []
-
-    # 全チームのシュート関連スタッツを一度に集計
-    shooting_stats_query = db.session.query(
-        Player.team_id,
-        func.sum(PlayerStat.pts).label('total_pts'),
-        func.sum(PlayerStat.ast).label('total_ast'),
-        func.sum(PlayerStat.reb).label('total_reb'),
-        func.sum(PlayerStat.stl).label('total_stl'),
-        func.sum(PlayerStat.blk).label('total_blk'),
-        func.sum(PlayerStat.foul).label('total_foul'),
-        func.sum(PlayerStat.turnover).label('total_turnover'),
-        func.sum(PlayerStat.fgm).label('total_fgm'),
-        func.sum(PlayerStat.fga).label('total_fga'),
-        func.sum(PlayerStat.three_pm).label('total_3pm'),
-        func.sum(PlayerStat.three_pa).label('total_3pa'),
-        func.sum(PlayerStat.ftm).label('total_ftm'),
-        func.sum(PlayerStat.fta).label('total_fta')
-    ).join(Player).group_by(Player.team_id).all()
-    
-    shooting_map = {s.team_id: s for s in shooting_stats_query}
-
-    for team in teams:
-        standings_info = calculate_standings()
-        team_standings = next((item for item in standings_info if item['team_name'] == team.name), None)
-        
-        if not team_standings:
-            continue
-
-        games_played = team_standings['wins'] + team_standings['losses']
-        team_shooting = shooting_map.get(team.id)
-
-        stats_dict = {
-            'name': team.name, 'league': team.league,
-            'wins': team_standings['wins'], 'losses': team_standings['losses'], 'points': team_standings['points'],
-            'avg_pf': team_standings['avg_pf'], 'avg_pa': team_standings['avg_pa'], 'diff': team_standings['diff']
-        }
-
-        if games_played > 0 and team_shooting:
-            stats_dict.update({
-                'avg_pts': team_shooting.total_pts / games_played,
-                'avg_ast': team_shooting.total_ast / games_played,
-                'avg_reb': team_shooting.total_reb / games_played,
-                'avg_stl': team_shooting.total_stl / games_played,
-                'avg_blk': team_shooting.total_blk / games_played,
-                'avg_foul': team_shooting.total_foul / games_played,
-                'avg_turnover': team_shooting.total_turnover / games_played,
-                'avg_fgm': team_shooting.total_fgm / games_played,
-                'avg_fga': team_shooting.total_fga / games_played,
-                'avg_three_pm': team_shooting.total_3pm / games_played,
-                'avg_three_pa': team_shooting.total_3pa / games_played,
-                'avg_ftm': team_shooting.total_ftm / games_played,
-                'avg_fta': team_shooting.total_fta / games_played,
-                'fg_pct': (team_shooting.total_fgm / team_shooting.total_fga * 100) if team_shooting.total_fga > 0 else 0,
-                'three_p_pct': (team_shooting.total_3pm / team_shooting.total_3pa * 100) if team_shooting.total_3pa > 0 else 0,
-                'ft_pct': (team_shooting.total_ftm / team_shooting.total_fta * 100) if team_shooting.total_fta > 0 else 0,
-            })
-        
-        team_stats_list.append(stats_dict)
-        
-    return team_stats_list
