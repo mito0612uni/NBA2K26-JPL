@@ -4,61 +4,28 @@
   <table id="team-stats-table" class="display" style="width:100%">
     <thead>
       <tr>
-        <th>チーム名</th>
-        <th>リーグ</th>
-        <th>勝</th>
-        <th>負</th>
-        <th>勝点</th>
-        <th>平均得点</th>
-        <th>平均失点</th>
-        <th>得失点差</th>
-        {# ★★★ ここからが追加部分 ★★★ #}
-        <th>平均AST</th>
-        <th>平均REB</th>
-        <th>平均STL</th>
-        <th>平均BLK</th>
-        <th>平均FOUL</th>
-        <th>平均TO</th>
-        <th>平均FGM</th>
-        <th>平均FGA</th>
-        <th>FG%</th>
-        <th>平均3PM</th>
-        <th>平均3PA</th>
-        <th>3P%</th>
-        <th>平均FTM</th>
-        <th>平均FTA</th>
-        <th>FT%</th>
-        {# ★★★ ここまで ★★★ #}
+        <th>チーム名</th><th>リーグ</th><th>勝</th><th>負</th><th>勝点</th>
+        <th>平均得点</th><th>平均失点</th><th>得失点差</th>
+        <th>平均AST</th><th>平均REB</th><th>平均STL</th><th>平均BLK</th>
+        <th>平均FOUL</th><th>平均TO</th><th>平均FGM</th><th>平均FGA</th>
+        <th>FG%</th><th>平均3PM</th><th>平均3PA</th><th>3P%</th>
+        <th>平均FTM</th><th>平均FTA</th><th>FT%</th>
       </tr>
     </thead>
     <tbody>
       {% for team in team_stats %}
       <tr>
-        <td>{{ team.name }}</td>
-        <td>{{ team.league }}</td>
-        <td>{{ team.wins }}</td>
-        <td>{{ team.losses }}</td>
-        <td>{{ team.points }}</td>
-        <td>{{ "%.1f"|format(team.avg_pf) }}</td>
-        <td>{{ "%.1f"|format(team.avg_pa) }}</td>
-        <td>{{ team.diff }}</td>
-        {# ★★★ ここからが追加部分 ★★★ #}
-        <td>{{ "%.1f"|format(team.get('avg_ast', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_reb', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_stl', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_blk', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_foul', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_turnover', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_fgm', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_fga', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('fg_pct', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_three_pm', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_three_pa', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('three_p_pct', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_ftm', 0)) }}</td>
-        <td>{{ "%.1f"|format(team.get('avg_fta', 0)) }}</td>
+        <td>{{ team.name }}</td><td>{{ team.league }}</td>
+        <td>{{ team.wins }}</td><td>{{ team.losses }}</td><td>{{ team.points }}</td>
+        <td>{{ "%.1f"|format(team.avg_pf) }}</td><td>{{ "%.1f"|format(team.avg_pa) }}</td><td>{{ team.diff }}</td>
+        <td>{{ "%.1f"|format(team.get('avg_ast', 0)) }}</td><td>{{ "%.1f"|format(team.get('avg_reb', 0)) }}</td>
+        <td>{{ "%.1f"|format(team.get('avg_stl', 0)) }}</td><td>{{ "%.1f"|format(team.get('avg_blk', 0)) }}</td>
+        <td>{{ "%.1f"|format(team.get('avg_foul', 0)) }}</td><td>{{ "%.1f"|format(team.get('avg_turnover', 0)) }}</td>
+        <td>{{ "%.1f"|format(team.get('avg_fgm', 0)) }}</td><td>{{ "%.1f"|format(team.get('avg_fga', 0)) }}</td>
+        <td>{{ "%.1f"|format(team.get('fg_pct', 0)) }}</td><td>{{ "%.1f"|format(team.get('avg_three_pm', 0)) }}</td>
+        <td>{{ "%.1f"|format(team.get('avg_three_pa', 0)) }}</td><td>{{ "%.1f"|format(team.get('three_p_pct', 0)) }}</td>
+        <td>{{ "%.1f"|format(team.get('avg_ftm', 0)) }}</td><td>{{ "%.1f"|format(team.get('avg_fta', 0)) }}</td>
         <td>{{ "%.1f"|format(team.get('ft_pct', 0)) }}</td>
-        {# ★★★ ここまで ★★★ #}
       </tr>
       {% endfor %}
     </tbody>
@@ -68,20 +35,40 @@
 
   <h2>個人成績</h2>
   <table id="individual-stats-table" class="display" style="width:100%">
-    </table>
+    <thead>
+      <tr>
+        <th>選手名</th><th>チーム名</th><th>出場試合</th><th>平均得点</th><th>平均アシスト</th>
+        <th>平均リバウンド</th><th>平均スティール</th><th>平均ブロック</th><th>平均ファウル</th>
+        <th>平均TO</th><th>平均FGM</th><th>平均FGA</th><th>FG%</th><th>平均3PM</th>
+        <th>平均3PA</th><th>3P%</th><th>平均FTM</th><th>平均FTA</th><th>FT%</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for stat in individual_stats %}
+      <tr>
+        <td>{{ stat.player_name }}</td><td>{{ stat.team_name }}</td><td>{{ stat.games_played }}</td>
+        <td>{{ "%.1f"|format(stat.avg_pts) }}</td><td>{{ "%.1f"|format(stat.avg_ast) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_reb) }}</td><td>{{ "%.1f"|format(stat.avg_stl) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_blk) }}</td><td>{{ "%.1f"|format(stat.avg_foul) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_turnover) }}</td><td>{{ "%.1f"|format(stat.avg_fgm) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_fga) }}</td><td>{{ "%.1f"|format(stat.fg_pct) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_three_pm) }}</td><td>{{ "%.1f"|format(stat.avg_three_pa) }}</td>
+        <td>{{ "%.1f"|format(stat.three_p_pct) }}</td><td>{{ "%.1f"|format(stat.avg_ftm) }}</td>
+        <td>{{ "%.1f"|format(stat.avg_fta) }}</td><td>{{ "%.1f"|format(stat.ft_pct) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 {% endblock %}
 
 {% block scripts %}
 <script>
   $(document).ready(function() {
-    // 2つのテーブルそれぞれにDataTablesを適用
     $('#team-stats-table').DataTable({
-      "pageLength": 25,
-      "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ja.json" }
+      "pageLength": 25, "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ja.json" }
     });
     $('#individual-stats-table').DataTable({
-      "pageLength": 25,
-      "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ja.json" }
+      "pageLength": 25, "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ja.json" }
     });
   });
 </script>
