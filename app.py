@@ -193,13 +193,13 @@ def index():
     return render_template('index.html', overall_standings=overall_standings,
                            league_a_standings=league_a_standings, league_b_standings=league_b_standings,
                            leaders=stats_leaders, upcoming_games=upcoming_games, teams_data=teams_data)
-
 @app.route('/roster', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def roster():
     if request.method == 'POST':
         action = request.form.get('action')
+
         if action == 'add_team':
             team_name = request.form.get('team_name'); league = request.form.get('league')
             logo_filename = None
@@ -208,14 +208,29 @@ def roster():
                 if file and file.filename != '' and allowed_file(file.filename):
                     logo_filename = secure_filename(file.filename)
                     file.save(os.path.join(app.config['UPLOAD_FOLDER'], logo_filename))
-                elif file.filename != '': flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
+                elif file.filename != '':
+                    flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
+
             if team_name and league:
                 if not Team.query.filter_by(name=team_name).first():
                     new_team = Team(name=team_name, league=league, logo_image=logo_filename)
-                    db.session.add(new_team); db.session.commit()
+                    db.session.add(new_team)
+                    db.session.commit() # チームを先に保存してIDを確定
                     flash(f'チーム「{team_name}」が{league}に登録されました。')
+
+                    # ★★★ ここからが抜けていた部分です ★★★
+                    # 同時に登録された選手を追加
+                    for i in range(1, 11):
+                        player_name = request.form.get(f'player_name_{i}')
+                        if player_name: # 選手名が入力されていた場合のみ
+                            new_player = Player(name=player_name, team_id=new_team.id)
+                            db.session.add(new_player)
+                    db.session.commit() # 追加した選手をまとめて保存
+                    # ★★★ ここまで ★★★
+
                 else: flash(f'チーム「{team_name}」は既に存在します。')
             else: flash('チーム名とリーグを選択してください。')
+
         elif action == 'add_player':
             player_name = request.form.get('player_name'); team_id = request.form.get('team_id')
             if player_name and team_id:
@@ -223,6 +238,7 @@ def roster():
                 db.session.add(new_player); db.session.commit()
                 flash(f'選手「{player_name}」が登録されました。')
             else: flash('選手名とチームを選択してください。')
+        
         elif action == 'promote_user':
             username_to_promote = request.form.get('username_to_promote')
             if username_to_promote:
@@ -234,12 +250,14 @@ def roster():
                     else: flash(f'ユーザー「{username_to_promote}」は既に管理者です。')
                 else: flash(f'ユーザー「{username_to_promote}」が見つかりません。')
             else: flash('ユーザー名を入力してください。')
+
         elif action == 'edit_player':
             player_id = request.form.get('player_id', type=int); new_name = request.form.get('new_name')
             player = Player.query.get(player_id)
             if player and new_name:
                 player.name = new_name; db.session.commit()
                 flash(f'選手名を「{new_name}」に変更しました。')
+
         elif action == 'transfer_player':
             player_id = request.form.get('player_id', type=int); new_team_id = request.form.get('new_team_id', type=int)
             player = Player.query.get(player_id); new_team = Team.query.get(new_team_id)
@@ -247,8 +265,11 @@ def roster():
                 old_team_name = player.team.name
                 player.team_id = new_team_id; db.session.commit()
                 flash(f'選手「{player.name}」を{old_team_name}から{new_team.name}に移籍させました。')
+        
         return redirect(url_for('roster'))
-    teams = Team.query.all(); users = User.query.all()
+
+    teams = Team.query.all()
+    users = User.query.all()
     return render_template('roster.html', teams=teams, users=users)
 
 @app.route('/schedule')
@@ -282,41 +303,90 @@ def add_schedule():
 @admin_required
 def auto_schedule():
     if request.method == 'POST':
-        start_date_str = request.form.get('start_date'); weekdays = request.form.getlist('weekdays'); times_str = request.form.get('times')
+        start_date_str = request.form.get('start_date')
+        weekdays = request.form.getlist('weekdays')
+        times_str = request.form.get('times')
+        
         if not all([start_date_str, weekdays, times_str]):
             flash('すべての項目を入力してください。'); return redirect(url_for('auto_schedule'))
+
+        # --- 1. チームリストの準備 ---
         teams = list(Team.query.all())
         if len(teams) < 2:
             flash('対戦するには少なくとも2チーム必要です。'); return redirect(url_for('auto_schedule'))
-        if len(teams) % 2 != 0: teams.append(None)
-        num_teams = len(teams); num_rounds = num_teams - 1
-        matchups = []; rotating_teams = deque(teams[1:])
+        
+        # チーム数が奇数ならダミーチームを追加
+        if len(teams) % 2 != 0:
+            teams.append(None)
+        
+        num_teams = len(teams)
+        num_rounds = num_teams - 1
+        
+        # ★★★ 変更点1: 対戦組み合わせを「ラウンドごと」にまとめる ★★★
+        all_rounds = []
+        rotating_teams = deque(teams[1:])
         for _ in range(num_rounds):
-            round_matchups = []; round_matchups.append((teams[0], rotating_teams[-1]))
+            round_matchups = []
+            # 固定チーム vs 回転の最後のチーム
+            round_matchups.append((teams[0], rotating_teams[-1]))
+            # 残りのチームの対戦
             for i in range((num_teams // 2) - 1):
                 round_matchups.append((rotating_teams[i], rotating_teams[-(i + 2)]))
-            matchups.extend(round_matchups); rotating_teams.rotate(1)
+            all_rounds.append(round_matchups)
+            rotating_teams.rotate(1) # チームを一つ回転
+
+        # --- 2. 試合日時のスロットを生成 ---
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        selected_weekdays = [int(d) for d in weekdays]; times = [t.strip() for t in times_str.split(',')]
-        game_slots = []; current_date = start_date
-        while len(game_slots) < len(matchups):
+        selected_weekdays = [int(d) for d in weekdays]
+        times = [t.strip() for t in times_str.split(',')]
+        
+        # 必要な試合スロットの総数を計算
+        total_slots_needed = len(all_rounds)
+        time_slots = []
+        current_date = start_date
+        while len(time_slots) < total_slots_needed:
             if current_date.weekday() in selected_weekdays:
-                for time_slot in times: game_slots.append({'date': current_date.strftime('%Y-%m-%d'), 'time': time_slot})
+                for time_slot in times:
+                    if len(time_slots) < total_slots_needed:
+                         time_slots.append({'date': current_date.strftime('%Y-%-m-%d'), 'time': time_slot})
             current_date += timedelta(days=1)
+
+        # --- 3. パスワードの準備 ---
         num_games_per_slot = num_teams // 2
-        passwords_for_slot = [generate_password() for _ in range(num_games_per_slot)]
-        for i, match in enumerate(matchups):
-            home_team, away_team = match
-            if home_team is None or away_team is None: continue
-            if i < len(game_slots):
-                slot = game_slots[i]
-                password_index = i % num_games_per_slot
-                game_password = passwords_for_slot[password_index]
-                new_game = Game(game_date=slot['date'], start_time=slot['time'],
-                                home_team_id=home_team.id, away_team_id=away_team.id, game_password=game_password)
+        alphabet = 'abcdefghijklmnopqrstuvwxyz'
+        passwords_for_slot = [(alphabet[i % len(alphabet)] * 4) for i in range(num_games_per_slot)]
+
+        # ★★★ 変更点2: ラウンドごとに試合を割り当てる ★★★
+        # --- 4. 試合日程をデータベースに保存 ---
+        games_created_count = 0
+        # 1ラウンドずつループ処理
+        for round_index, matchups_in_round in enumerate(all_rounds):
+            # このラウンドが割り当てられるべき日時スロットを取得
+            slot = time_slots[round_index]
+            
+            # ラウンド内の各対戦をループ処理
+            for match_index, match in enumerate(matchups_in_round):
+                home_team, away_team = match
+                if home_team is None or away_team is None:
+                    continue
+                
+                # パスワードを割り当て
+                game_password = passwords_for_slot[match_index]
+
+                new_game = Game(
+                    game_date=slot['date'],
+                    start_time=slot['time'],
+                    home_team_id=home_team.id,
+                    away_team_id=away_team.id,
+                    game_password=game_password
+                )
                 db.session.add(new_game)
+                games_created_count += 1
+
         db.session.commit()
-        flash(f'総当たり日程を自動作成しました。'); return redirect(url_for('schedule'))
+        flash(f'{games_created_count}試合の総当たり日程を自動作成しました。')
+        return redirect(url_for('schedule'))
+
     return render_template('auto_schedule.html')
 
 @app.route('/team/delete/<int:team_id>', methods=['POST'])
