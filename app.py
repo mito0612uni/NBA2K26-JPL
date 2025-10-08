@@ -465,6 +465,8 @@ def edit_game(game_id):
     stats = {str(stat.player_id): {'pts': stat.pts, 'ast': stat.ast, 'reb': stat.reb, 'stl': stat.stl, 'blk': stat.blk, 'foul': stat.foul, 'turnover': stat.turnover, 'fgm': stat.fgm, 'fga': stat.fga, 'three_pm': stat.three_pm, 'three_pa': stat.three_pa, 'ftm': stat.ftm, 'fta': stat.fta} for stat in PlayerStat.query.filter_by(game_id=game_id).all()}
     return render_template('game_edit.html', game=game, stats=stats)
 
+# ... (edit_game 関数の下) ...
+
 @app.route('/stats')
 def stats_page():
     # チーム成績の集計
@@ -472,52 +474,39 @@ def stats_page():
     
     # 個人成績の集計
     games_played = func.count(PlayerStat.game_id).label('games_played')
-    avg_pts = func.avg(PlayerStat.pts).label('avg_pts')
-    avg_ast = func.avg(PlayerStat.ast).label('avg_ast')
-    avg_reb = func.avg(PlayerStat.reb).label('avg_reb')
-    avg_stl = func.avg(PlayerStat.stl).label('avg_stl')
-    avg_blk = func.avg(PlayerStat.blk).label('avg_blk')
-    avg_foul = func.avg(PlayerStat.foul).label('avg_foul')
-    avg_turnover = func.avg(PlayerStat.turnover).label('avg_turnover')
-    avg_fgm = func.avg(PlayerStat.fgm).label('avg_fgm')
-    avg_fga = func.avg(PlayerStat.fga).label('avg_fga')
-    avg_three_pm = func.avg(PlayerStat.three_pm).label('avg_three_pm')
-    avg_three_pa = func.avg(PlayerStat.three_pa).label('avg_three_pa')
-    avg_ftm = func.avg(PlayerStat.ftm).label('avg_ftm')
+    avg_pts = func.avg(PlayerStat.pts).label('avg_pts'); avg_ast = func.avg(PlayerStat.ast).label('avg_ast')
+    avg_reb = func.avg(PlayerStat.reb).label('avg_reb'); avg_stl = func.avg(PlayerStat.stl).label('avg_stl')
+    avg_blk = func.avg(PlayerStat.blk).label('avg_blk'); avg_foul = func.avg(PlayerStat.foul).label('avg_foul')
+    avg_turnover = func.avg(PlayerStat.turnover).label('avg_turnover'); avg_fgm = func.avg(PlayerStat.fgm).label('avg_fgm')
+    avg_fga = func.avg(PlayerStat.fga).label('avg_fga'); avg_three_pm = func.avg(PlayerStat.three_pm).label('avg_three_pm')
+    avg_three_pa = func.avg(PlayerStat.three_pa).label('avg_three_pa'); avg_ftm = func.avg(PlayerStat.ftm).label('avg_ftm')
     avg_fta = func.avg(PlayerStat.fta).label('avg_fta')
-
-    total_fgm = func.sum(PlayerStat.fgm)
-    total_fga = func.sum(PlayerStat.fga)
+    total_fgm = func.sum(PlayerStat.fgm); total_fga = func.sum(PlayerStat.fga)
     fg_percentage = case((total_fga > 0, (total_fgm * 100.0 / total_fga)), else_=0).label('fg_pct')
-
-    total_3pm = func.sum(PlayerStat.three_pm)
-    total_3pa = func.sum(PlayerStat.three_pa)
+    total_3pm = func.sum(PlayerStat.three_pm); total_3pa = func.sum(PlayerStat.three_pa)
     three_p_percentage = case((total_3pa > 0, (total_3pm * 100.0 / total_3pa)), else_=0).label('three_p_pct')
-
-    total_ftm = func.sum(PlayerStat.ftm)
-    total_fta = func.sum(PlayerStat.fta)
+    total_ftm = func.sum(PlayerStat.ftm); total_fta = func.sum(PlayerStat.fta)
     ft_percentage = case((total_fta > 0, (total_ftm * 100.0 / total_fta)), else_=0).label('ft_pct')
     
     individual_stats = db.session.query(
-        Player.name.label('player_name'),
-        Team.name.label('team_name'),
-        games_played,
+        Player.name.label('player_name'), Team.name.label('team_name'), games_played,
         avg_pts, avg_ast, avg_reb, avg_stl, avg_blk, avg_foul, avg_turnover,
         avg_fgm, avg_fga, avg_three_pm, avg_three_pa, avg_ftm, avg_fta,
         fg_percentage, three_p_percentage, ft_percentage
-    ).join(Player, PlayerStat.player_id == Player.id)\
-     .join(Team, Player.team_id == Team.id)\
-     .group_by(Player.id, Team.name).all()
+    ).join(Player, PlayerStat.player_id == Player.id).join(Team, Player.team_id == Team.id).group_by(Player.id, Team.name).all()
      
-    return render_template('stats.html', team_stats=team_stats, individual_stats=individual_stats)@app.cli.command('init-db')
+    return render_template('stats.html', team_stats=team_stats, individual_stats=individual_stats)
+
+
+# --- 6. データベース初期化コマンドと実行 ---
+@app.cli.command('init-db')
 def init_db_command():
     db.drop_all()
     db.create_all()
     print('Initialized the database.')
 
 if __name__ == '__main__':
-    app.run(debug=True)
-def calculate_team_stats():
+    app.run(debug=True)def calculate_team_stats():
     """チームごとの総合成績を集計する関数"""
     teams = Team.query.all()
     team_stats_list = []
