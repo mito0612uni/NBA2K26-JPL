@@ -167,7 +167,6 @@ def calculate_team_stats():
     team_stats_list = []
     standings_info = calculate_standings() 
 
-    # チームごとのシュート関連スタッツの合計を一度に集計
     shooting_stats_query = db.session.query(
         Player.team_id,
         func.sum(PlayerStat.pts).label('total_pts'),
@@ -192,17 +191,13 @@ def calculate_team_stats():
         if not team_obj:
             continue
 
-        # ★★★ ここからが修正部分 ★★★
-        # 不戦勝を除いた、スタッツ計算対象の試合数を取得
         stats_games_played = team_standings.get('stats_games_played', 0)
         team_shooting = shooting_map.get(team_obj.id)
 
         stats_dict = team_standings.copy()
 
-        # スタッツ計算対象の試合数が0より大きい場合のみ、詳細スタッツを計算
         if stats_games_played > 0 and team_shooting:
             stats_dict.update({
-                # 全ての平均スタッツを stats_games_played で割るように変更
                 'avg_ast': team_shooting.total_ast / stats_games_played,
                 'avg_reb': team_shooting.total_reb / stats_games_played,
                 'avg_stl': team_shooting.total_stl / stats_games_played,
@@ -215,19 +210,14 @@ def calculate_team_stats():
                 'avg_three_pa': team_shooting.total_3pa / stats_games_played,
                 'avg_ftm': team_shooting.total_ftm / stats_games_played,
                 'avg_fta': team_shooting.total_fta / stats_games_played,
-                # 成功率は合計値から計算するので変更なし
                 'fg_pct': (team_shooting.total_fgm / team_shooting.total_fga * 100) if team_shooting.total_fga > 0 else 0,
                 'three_p_pct': (team_shooting.total_3pm / team_shooting.total_3pa * 100) if team_shooting.total_3pa > 0 else 0,
-                'ft_pct': (team_shooting.total_ftm / team_shooting.total_fta * 100) if team_shooting.total_fta > 0
-def get_stats_leaders():
-    leaders = {}
-    stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
-    for field_key, field_name in stat_fields.items():
-        avg_stat = func.avg(getattr(PlayerStat, field_key)).label('avg_value')
-        query_result = db.session.query(Player.name, avg_stat).join(PlayerStat, PlayerStat.player_id == Player.id).group_by(Player.id).order_by(db.desc('avg_value')).limit(5).all()
-        leaders[field_name] = query_result
-    return leaders
-
+                'ft_pct': (team_shooting.total_ftm / team_shooting.total_fta * 100) if team_shooting.total_fta > 0 else 0,
+            }) # ★★★ この閉じ括弧 `})` が抜けていました ★★★
+        
+        team_stats_list.append(stats_dict)
+        
+    return team_stats_list
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
