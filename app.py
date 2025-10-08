@@ -506,7 +506,8 @@ def init_db_command():
     print('Initialized the database.')
 
 if __name__ == '__main__':
-    app.run(debug=True)def calculate_team_stats():
+    app.run(debug=True)
+    def calculate_team_stats():
     """チームごとの総合成績を集計する関数"""
     teams = Team.query.all()
     team_stats_list = []
