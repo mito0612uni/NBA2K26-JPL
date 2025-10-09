@@ -4,7 +4,7 @@ import string
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, case, or_
 from werkzeug.security import generate_password_hash, check_password_hash
