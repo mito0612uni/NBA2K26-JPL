@@ -14,6 +14,11 @@ from collections import defaultdict, deque
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from itertools import combinations
+# ... from itertools import combinations の下あたりに追加 ...
+from google.cloud import vision
+import io
+import re
+from flask import jsonify
 
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
@@ -484,3 +489,80 @@ def init_db_command():
 
 if __name__ == '__main__':
     app.run(debug=True)
+# --- ▼▼▼ これをapp.pyの末尾に追加 ▼▼▼ ---
+
+def parse_nba2k_stats(text):
+    """Google Cloud Vision APIから返されたテキストを解析してスタッツを抽出する関数"""
+    stats_data = {}
+    player_lines = text.split('\n')
+    
+    # 正規表現でプレイヤー名とスタッツの行を特定
+    # 例: 'mito0612uni B+ 12 7 2 0 0 1 1 6/7 0/0 0/0'
+    stats_pattern = re.compile(
+        r'([a-zA-Z0-9_-]+)\s+'  # Player Name (mito0612uni)
+        r'[A-Z][+-]?\s+'      # Grade (B+)
+        r'(\d+)\s+'           # PTS
+        r'(\d+)\s+'           # REB
+        r'(\d+)\s+'           # AST
+        r'(\d+)\s+'           # STL
+        r'(\d+)\s+'           # BLK
+        r'(\d+)\s+'           # FOULS
+        r'(\d+)\s+'           # TO
+        r'(\d+)/(\d+)\s+'     # FGM/FGA
+        r'(\d+)/(\d+)\s+'     # 3PM/3PA
+        r'(\d+)/(\d+)'        # FTM/FTA
+    )
+
+    for line in player_lines:
+        match = stats_pattern.search(line)
+        if match:
+            groups = match.groups()
+            player_name = groups[0]
+            stats_data[player_name] = {
+                'pts': int(groups[1]), 'reb': int(groups[2]), 'ast': int(groups[3]),
+                'stl': int(groups[4]), 'blk': int(groups[5]), 'foul': int(groups[6]),
+                'turnover': int(groups[7]), 'fgm': int(groups[8]), 'fga': int(groups[9]),
+                'three_pm': int(groups[10]), 'three_pa': int(groups[11]),
+                'ftm': int(groups[12]), 'fta': int(groups[13])
+            }
+            
+    return stats_data
+
+@app.route('/ocr-upload', methods=['POST'])
+@login_required
+@admin_required
+def ocr_upload():
+    if 'image' not in request.files:
+        return jsonify({'error': '画像ファイルがありません'}), 400
+    
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'ファイルが選択されていません'}), 400
+
+    try:
+        # 画像データをメモリ上で読み込む
+        content = file.read()
+        image = vision.Image(content=content)
+        
+        # Google Cloud Vision APIクライアントを初期化
+        client = vision.ImageAnnotatorClient.from_service_account_info(
+            json.loads(os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON'))
+        )
+        
+        # OCRを実行
+        response = client.text_detection(image=image)
+        texts = response.text_annotations
+        
+        if texts:
+            # 検出されたテキスト全体を取得
+            full_text = texts[0].description
+            # テキストを解析してスタッツを抽出
+            parsed_data = parse_nba2k_stats(full_text)
+            return jsonify(parsed_data)
+        else:
+            return jsonify({'error': '画像からテキストを検出できませんでした'}), 500
+
+    except Exception as e:
+        return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
+
+# --- ▲▲▲ ここまで追加 ▲▲▲ ---

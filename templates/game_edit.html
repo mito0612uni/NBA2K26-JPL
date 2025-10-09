@@ -14,7 +14,14 @@
   {% if current_user.is_authenticated %}結果入力{% else %}試合スタッツ{% endif %}: 
   {{ game.home_team.name }} vs {{ game.away_team.name }}
 </h2>
-
+{# ... <h2>タグの下 ... #}
+<div id="ocr-section" style="background-color: #e3f2fd; border: 1px solid #b1d7f0; padding: 15px; margin-bottom: 20px; border-radius: 5px;">
+  <h4>OCR自動入力 (試験機能)</h4>
+  <p>NBA 2Kの試合結果スクリーンショットをアップロードしてください。</p>
+  <input type="file" id="ocr-image-input" accept="image/*">
+  <button type="button" id="ocr-submit-btn">画像からスタッツを読み込む</button>
+  <div id="ocr-status" style="margin-top: 10px;"></div>
+</div>
 {# ★★★ 新しい説明文を追加 ★★★ #}
 <p style="margin-bottom: 15px;">
   チーム得点は自動計算されます。
@@ -215,5 +222,68 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 </script>
+// ... 既存のスクリプトの下に追加 ...
+document.getElementById('ocr-submit-btn').addEventListener('click', function() {
+    const fileInput = document.getElementById('ocr-image-input');
+    const statusDiv = document.getElementById('ocr-status');
+    
+    if (fileInput.files.length === 0) {
+        statusDiv.textContent = '画像ファイルを選択してください。';
+        statusDiv.style.color = 'red';
+        return;
+    }
+
+    statusDiv.textContent = '画像をアップロードして解析中...';
+    statusDiv.style.color = 'blue';
+
+    const formData = new FormData();
+    formData.append('image', fileInput.files[0]);
+
+    fetch("{{ url_for('ocr_upload') }}", {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            statusDiv.textContent = `エラー: ${data.error}`;
+            statusDiv.style.color = 'red';
+            return;
+        }
+
+        let playersFound = 0;
+        // サーバーから返ってきたJSONデータ (data) を使ってフォームを埋める
+        for (const playerName in data) {
+            // プレイヤー名に一致するベンチの要素を探す
+            const playerSpan = document.querySelector(`.bench-player[data-player-name='${playerName}']`);
+            
+            if (playerSpan) {
+                playersFound++;
+                // まだ選択されていなければクリックしてテーブルに追加
+                if (!playerSpan.classList.contains('selected')) {
+                    playerSpan.click();
+                }
+
+                // 少し待ってから値をセット（テーブルが描画されるのを待つため）
+                setTimeout(() => {
+                    const stats = data[playerName];
+                    const playerId = playerSpan.dataset.playerId;
+                    for (const statName in stats) {
+                        const input = document.querySelector(`input[name='player_${playerId}_${statName}']`);
+                        if (input) {
+                            input.value = stats[statName];
+                        }
+                    }
+                }, 100);
+            }
+        }
+        statusDiv.textContent = `${Object.keys(data).length}人のプレイヤーデータを検出し、${playersFound}人の登録済みプレイヤーに反映しました。`;
+        statusDiv.style.color = 'green';
+    })
+    .catch(error => {
+        statusDiv.textContent = `通信エラーが発生しました: ${error}`;
+        statusDiv.style.color = 'red';
+    });
+});
 
 {% endblock %}
