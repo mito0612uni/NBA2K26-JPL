@@ -23,9 +23,8 @@
         <tr>
             <td>{{ loop.index }}</td>
             <td>
-                {# ★★★ ロゴ表示のif文を修正 ★★★ #}
                 {% if row.team and row.team.logo_image %}
-                    <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
+                    <img src="{{ row.team.logo_image }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
                 {% endif %}
                 {{ row.team_name }}
             </td>
@@ -58,9 +57,8 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>
-            {# ★★★ ロゴ表示のif文を修正 ★★★ #}
             {% if row.team and row.team.logo_image %}
-              <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
+              <img src="{{ row.team.logo_image }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
             {% endif %}
             {{ row.team_name }}
           </td>
@@ -80,9 +78,8 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>
-            {# ★★★ ロゴ表示のif文を修正 ★★★ #}
             {% if row.team and row.team.logo_image %}
-              <img src="{{ url_for('static', filename='logos/' + row.team.logo_image) }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
+              <img src="{{ row.team.logo_image }}" alt="{{ row.team_name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
             {% endif %}
             {{ row.team_name }}
           </td>
@@ -134,13 +131,13 @@
         </div>
         <div>
           {% if game.home_team.logo_image %}
-            <img src="{{ url_for('static', filename='logos/' + game.home_team.logo_image) }}" alt="{{ game.home_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
+            <img src="{{ game.home_team.logo_image }}" alt="{{ game.home_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-right: 5px;">
           {% endif %}
           {{ game.home_team.name }} 
           <span style="margin: 0 10px;">vs</span> 
           {{ game.away_team.name }}
           {% if game.away_team.logo_image %}
-            <img src="{{ url_for('static', filename='logos/' + game.away_team.logo_image) }}" alt="{{ game.away_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-left: 5px;">
+            <img src="{{ game.away_team.logo_image }}" alt="{{ game.away_team.name }} ロゴ" style="height: 20px; vertical-align: middle; margin-left: 5px;">
           {% endif %}
         </div>
       </div>

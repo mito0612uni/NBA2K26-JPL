@@ -1,6 +1,9 @@
 import os
 import random
 import string
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, case, or_
@@ -17,13 +20,12 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_very_secret_key_change_it'
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-# 画像アップロード設定
-UPLOAD_FOLDER = os.path.join(basedir, 'static/logos')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+# Cloudinary設定
+cloudinary.config( 
+    cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME'), 
+    api_key = os.environ.get('CLOUDINARY_API_KEY'), 
+    api_secret = os.environ.get('CLOUDINARY_API_SECRET')
+)
 
 # データベース設定
 database_url = os.environ.get('DATABASE_URL')
@@ -55,7 +57,7 @@ class User(UserMixin, db.Model):
 class Team(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
-    logo_image = db.Column(db.String(100), nullable=True)
+    logo_image = db.Column(db.String(255), nullable=True) 
     league = db.Column(db.String(50), nullable=True)
     players = db.relationship('Player', backref='team', lazy=True)
 
@@ -108,7 +110,7 @@ def admin_required(f):
     return decorated_function
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg', 'gif'}
 
 def generate_password(length=4):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
@@ -118,106 +120,76 @@ def calculate_standings(league_filter=None):
     else: teams = Team.query.all()
     standings = []
     for team in teams:
-        wins, losses, points_for, points_against = 0, 0, 0, 0
-        
-        # ★★★ 変更点: スタッツ計算用の試合数をカウントする変数を追加 ★★★
-        stats_games_played = 0
-
-        # ホームゲームの集計
+        wins, losses, points_for, points_against, stats_games_played = 0, 0, 0, 0, 0
         home_games = Game.query.filter_by(home_team_id=team.id, is_finished=True).all()
         for game in home_games:
-            # 不戦勝でない試合のみ、得点と試合数を加算
             if game.winner_id is None:
-                points_for += game.home_score
-                points_against += game.away_score
-                stats_games_played += 1
-
+                points_for += game.home_score; points_against += game.away_score; stats_games_played += 1
             if game.winner_id == team.id: wins += 1
             elif game.loser_id == team.id: losses += 1
             elif game.home_score > game.away_score: wins += 1
             elif game.home_score < game.away_score: losses += 1
-        
-        # アウェイゲームの集計
         away_games = Game.query.filter_by(away_team_id=team.id, is_finished=True).all()
         for game in away_games:
-            # 不戦勝でない試合のみ、得点と試合数を加算
             if game.winner_id is None:
-                points_for += game.away_score
-                points_against += game.home_score
-                stats_games_played += 1
-            
+                points_for += game.away_score; points_against += game.home_score; stats_games_played += 1
             if game.winner_id == team.id: wins += 1
             elif game.loser_id == team.id: losses += 1
             elif game.away_score > game.home_score: wins += 1
             elif game.away_score < game.home_score: losses += 1
-        
         points = (wins * 2) + (losses * 1)
-        
         standings.append({
             'team': team, 'team_name': team.name, 'league': team.league, 'wins': wins, 'losses': losses, 'points': points,
             'avg_pf': round(points_for / stats_games_played, 1) if stats_games_played > 0 else 0,
             'avg_pa': round(points_against / stats_games_played, 1) if stats_games_played > 0 else 0,
-            'diff': points_for - points_against,
-            'stats_games_played': stats_games_played # チームスタッツ計算用に渡す
+            'diff': points_for - points_against, 'stats_games_played': stats_games_played
         })
     standings.sort(key=lambda x: (x['points'], x['diff']), reverse=True)
     return standings
+
 def calculate_team_stats():
-    """チームごとの総合成績を集計する関数"""
     team_stats_list = []
-    standings_info = calculate_standings() 
-
+    standings_info = calculate_standings()
     shooting_stats_query = db.session.query(
-        Player.team_id,
-        func.sum(PlayerStat.pts).label('total_pts'),
-        func.sum(PlayerStat.ast).label('total_ast'),
-        func.sum(PlayerStat.reb).label('total_reb'),
-        func.sum(PlayerStat.stl).label('total_stl'),
-        func.sum(PlayerStat.blk).label('total_blk'),
-        func.sum(PlayerStat.foul).label('total_foul'),
-        func.sum(PlayerStat.turnover).label('total_turnover'),
-        func.sum(PlayerStat.fgm).label('total_fgm'),
-        func.sum(PlayerStat.fga).label('total_fga'),
-        func.sum(PlayerStat.three_pm).label('total_3pm'),
-        func.sum(PlayerStat.three_pa).label('total_3pa'),
-        func.sum(PlayerStat.ftm).label('total_ftm'),
-        func.sum(PlayerStat.fta).label('total_fta')
+        Player.team_id, func.sum(PlayerStat.pts).label('total_pts'),
+        func.sum(PlayerStat.ast).label('total_ast'), func.sum(PlayerStat.reb).label('total_reb'),
+        func.sum(PlayerStat.stl).label('total_stl'), func.sum(PlayerStat.blk).label('total_blk'),
+        func.sum(PlayerStat.foul).label('total_foul'), func.sum(PlayerStat.turnover).label('total_turnover'),
+        func.sum(PlayerStat.fgm).label('total_fgm'), func.sum(PlayerStat.fga).label('total_fga'),
+        func.sum(PlayerStat.three_pm).label('total_3pm'), func.sum(PlayerStat.three_pa).label('total_3pa'),
+        func.sum(PlayerStat.ftm).label('total_ftm'), func.sum(PlayerStat.fta).label('total_fta')
     ).join(Player).group_by(Player.team_id).all()
-    
     shooting_map = {s.team_id: s for s in shooting_stats_query}
-
     for team_standings in standings_info:
         team_obj = team_standings.get('team')
-        if not team_obj:
-            continue
-
+        if not team_obj: continue
         stats_games_played = team_standings.get('stats_games_played', 0)
         team_shooting = shooting_map.get(team_obj.id)
-
         stats_dict = team_standings.copy()
-
         if stats_games_played > 0 and team_shooting:
             stats_dict.update({
-                'avg_ast': team_shooting.total_ast / stats_games_played,
-                'avg_reb': team_shooting.total_reb / stats_games_played,
-                'avg_stl': team_shooting.total_stl / stats_games_played,
-                'avg_blk': team_shooting.total_blk / stats_games_played,
-                'avg_foul': team_shooting.total_foul / stats_games_played,
-                'avg_turnover': team_shooting.total_turnover / stats_games_played,
-                'avg_fgm': team_shooting.total_fgm / stats_games_played,
-                'avg_fga': team_shooting.total_fga / stats_games_played,
-                'avg_three_pm': team_shooting.total_3pm / stats_games_played,
-                'avg_three_pa': team_shooting.total_3pa / stats_games_played,
-                'avg_ftm': team_shooting.total_ftm / stats_games_played,
-                'avg_fta': team_shooting.total_fta / stats_games_played,
+                'avg_ast': team_shooting.total_ast / stats_games_played, 'avg_reb': team_shooting.total_reb / stats_games_played,
+                'avg_stl': team_shooting.total_stl / stats_games_played, 'avg_blk': team_shooting.total_blk / stats_games_played,
+                'avg_foul': team_shooting.total_foul / stats_games_played, 'avg_turnover': team_shooting.total_turnover / stats_games_played,
+                'avg_fgm': team_shooting.total_fgm / stats_games_played, 'avg_fga': team_shooting.total_fga / stats_games_played,
+                'avg_three_pm': team_shooting.total_3pm / stats_games_played, 'avg_three_pa': team_shooting.total_3pa / stats_games_played,
+                'avg_ftm': team_shooting.total_ftm / stats_games_played, 'avg_fta': team_shooting.total_fta / stats_games_played,
                 'fg_pct': (team_shooting.total_fgm / team_shooting.total_fga * 100) if team_shooting.total_fga > 0 else 0,
                 'three_p_pct': (team_shooting.total_3pm / team_shooting.total_3pa * 100) if team_shooting.total_3pa > 0 else 0,
                 'ft_pct': (team_shooting.total_ftm / team_shooting.total_fta * 100) if team_shooting.total_fta > 0 else 0,
-            }) # ★★★ この閉じ括弧 `})` が抜けていました ★★★
-        
+            })
         team_stats_list.append(stats_dict)
-        
     return team_stats_list
+
+def get_stats_leaders():
+    leaders = {}
+    stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
+    for field_key, field_name in stat_fields.items():
+        avg_stat = func.avg(getattr(PlayerStat, field_key)).label('avg_value')
+        query_result = db.session.query(Player.name, avg_stat).join(PlayerStat, PlayerStat.player_id == Player.id).group_by(Player.id).order_by(db.desc('avg_value')).limit(5).all()
+        leaders[field_name] = query_result
+    return leaders
+
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -254,10 +226,9 @@ def index():
     league_b_standings = calculate_standings(league_filter="Bリーグ")
     stats_leaders = get_stats_leaders()
     upcoming_games = Game.query.filter_by(is_finished=False).order_by(Game.game_date.asc(), Game.start_time.asc()).all()
-    teams_data = Team.query.all()
     return render_template('index.html', overall_standings=overall_standings,
                            league_a_standings=league_a_standings, league_b_standings=league_b_standings,
-                           leaders=stats_leaders, upcoming_games=upcoming_games, teams_data=teams_data)
+                           leaders=stats_leaders, upcoming_games=upcoming_games)
 
 @app.route('/roster', methods=['GET', 'POST'])
 @login_required
@@ -267,16 +238,21 @@ def roster():
         action = request.form.get('action')
         if action == 'add_team':
             team_name = request.form.get('team_name'); league = request.form.get('league')
-            logo_filename = None
+            logo_url = None
             if 'logo_image' in request.files:
                 file = request.files['logo_image']
                 if file and file.filename != '' and allowed_file(file.filename):
-                    logo_filename = secure_filename(file.filename)
-                    file.save(os.path.join(app.config['UPLOAD_FOLDER'], logo_filename))
-                elif file.filename != '': flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
+                    try:
+                        upload_result = cloudinary.uploader.upload(file)
+                        logo_url = upload_result.get('secure_url')
+                    except Exception as e:
+                        flash(f"画像アップロードに失敗しました: {e}")
+                        return redirect(url_for('roster'))
+                elif file.filename != '':
+                    flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
             if team_name and league:
                 if not Team.query.filter_by(name=team_name).first():
-                    new_team = Team(name=team_name, league=league, logo_image=logo_filename)
+                    new_team = Team(name=team_name, league=league, logo_image=logo_url)
                     db.session.add(new_team); db.session.commit()
                     flash(f'チーム「{team_name}」が{league}に登録されました。')
                     for i in range(1, 11):
@@ -374,7 +350,7 @@ def auto_schedule():
             if current_date.weekday() in selected_weekdays:
                 for time_slot in times:
                     if len(time_slots) < total_slots_needed:
-                         time_slots.append({'date': current_date.strftime('%Y-%-m-%d'), 'time': time_slot})
+                         time_slots.append({'date': current_date.strftime('%Y-%m-%d'), 'time': time_slot})
             current_date += timedelta(days=1)
         num_games_per_slot = num_teams // 2; alphabet = 'abcdefghijklmnopqrstuvwxyz'
         passwords_for_slot = [(alphabet[i % len(alphabet)] * 4) for i in range(num_games_per_slot)]
@@ -398,10 +374,16 @@ def auto_schedule():
 def delete_team(team_id):
     team_to_delete = Team.query.get_or_404(team_id)
     if team_to_delete.logo_image:
-        logo_path = os.path.join(app.config['UPLOAD_FOLDER'], team_to_delete.logo_image)
-        if os.path.exists(logo_path): os.remove(logo_path)
-    Player.query.filter_by(team_id=team_id).delete(); PlayerStat.query.join(Game).filter(or_(Game.home_team_id==team_id, Game.away_team_id==team_id)).delete(synchronize_session=False)
-    Game.query.filter(or_(Game.home_team_id==team_id, Game.away_team_id==team_id)).delete(synchronize_session=False)
+        try:
+            public_id = os.path.splitext(team_to_delete.logo_image.split('/')[-1])[0]
+            cloudinary.uploader.destroy(public_id)
+        except Exception as e:
+            print(f"Cloudinary image deletion failed: {e}")
+    Player.query.filter_by(team_id=team_id).delete()
+    games_to_delete = Game.query.filter(or_(Game.home_team_id==team_id, Game.away_team_id==team_id)).all()
+    for game in games_to_delete:
+        PlayerStat.query.filter_by(game_id=game.id).delete()
+        db.session.delete(game)
     db.session.delete(team_to_delete); db.session.commit()
     flash(f'チーム「{team_to_delete.name}」と関連データを全て削除しました。'); return redirect(url_for('roster'))
 
@@ -502,11 +484,4 @@ def init_db_command():
 
 if __name__ == '__main__':
     app.run(debug=True)
-def get_stats_leaders():
-    leaders = {}
-    stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
-    for field_key, field_name in stat_fields.items():
-        avg_stat = func.avg(getattr(PlayerStat, field_key)).label('avg_value')
-        query_result = db.session.query(Player.name, avg_stat).join(PlayerStat, PlayerStat.player_id == Player.id).group_by(Player.id).order_by(db.desc('avg_value')).limit(5).all()
-        leaders[field_name] = query_result
-    return leaders
+これでどう？
