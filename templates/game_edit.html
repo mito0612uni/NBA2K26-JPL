@@ -1,6 +1,8 @@
 {% extends "layout.html" %}
+
 {% block content %}
 <style>
+  /* このページ専用の簡単なスタイル */
   .bench { border: 1px solid #ddd; padding: 10px; margin-bottom: 15px; border-radius: 5px; }
   .bench-player { background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px 10px; border-radius: 15px; cursor: pointer; display: inline-block; margin: 5px; }
   .bench-player:hover { background-color: #e0e0e0; }
@@ -31,9 +33,7 @@
   <button type="button" id="ocr-submit-btn">画像から読み込む</button>
   <div id="ocr-feedback"></div>
 </div>
-{% endif %}
 
-{% if current_user.is_authenticated and current_user.is_admin %}
 <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
     <h4>管理者アクション：不戦勝処理</h4>
     <p>以下のボタンを押すと、スタッツを入力せずに不戦勝として即座に結果を記録します（スコアは0-0になります）。</p>
@@ -107,16 +107,3 @@
       <input type="url" id="youtube_url_away" name="youtube_url_away" value="{{ game.youtube_url_away or '' }}" placeholder="https://..." style="width: 100%; max-width: 500px; padding: 5px;">
     </div>
   </div>
-  {% endif %}
-  
-  {% if current_user.is_authenticated %}
-  <button type="submit" style="margin-top: 20px; padding: 10px 20px; font-size: 16px;">結果を保存</button>
-  {% endif %}
-</form>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// ... (すべてのJavaScriptコード)
-</script>
-{% endblock %}
