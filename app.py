@@ -57,7 +57,7 @@ class User(UserMixin, db.Model):
 class Team(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
-    logo_image = db.Column(db.String(255), nullable=True) 
+    logo_image = db.Column(db.String(255), nullable=True)
     league = db.Column(db.String(50), nullable=True)
     players = db.relationship('Player', backref='team', lazy=True)
 
