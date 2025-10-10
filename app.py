@@ -208,13 +208,15 @@ def parse_nba2k_stats(text):
     stats_data = {}
     player_lines = text.split('\n')
     
-    # ★★★ 正規表現を、さらに複雑なプレイヤー名に対応できるように強化 ★★★
+    # ★★★ 正規表現を、プレイヤー名として認識する文字を制限するように修正 ★★★
     stats_pattern = re.compile(
-        # 行頭のオプション記号とスペースを許容
-        r'^\s*([+‣▸]?\s*[a-zA-Z0-9_ -]{3,16})\s+'  # スペースやハイフンを含む3〜16文字のプレイヤー名
-        # グレード
+        # 行頭にあるかもしれない記号とスペースは無視する
+        r'^\s*[+‣▸]?\s*'
+        # プレイヤー名本体（英数字、ハイフン、アンダースコアのみを許可）
+        r'([a-zA-Z0-9_-]{3,16})\s+'
+        # グレード (B+ など)
         r'[A-Z][+-]?\s+'
-        # 7つの単独の数字 (PTS, REB, AST, STL, BLK, FOULS, TO)
+        # 7つの単独の数字 (PTSからTOまで)
         r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
         # 3つのシュートスタッツ (FGM/FGA, 3PM/3PA, FTM/FTA)
         r'(\d+)/(\d+)\s+'
@@ -226,17 +228,11 @@ def parse_nba2k_stats(text):
     sys.stdout.flush()
     
     for line in player_lines:
-        match = stats_pattern.match(line.strip())
+        match = stats_pattern.search(line.strip()) # .match()から.search()に戻して柔軟性を持たせる
         if match:
             groups = match.groups()
+            player_name = groups[0]
             
-            # ★★★ プレイヤー名から不要な文字を削除し、整形する ★★★
-            player_name = groups[0].replace('+', '').replace('‣', '').replace('▸', '').strip()
-            
-            # "合計"やチーム名のようなキーワードが含まれている行は除外する
-            if '合計' in player_name or 'Fear' in player_name or 'Claws' in player_name or 'Triggger' in player_name or 'CONVERS' in player_name:
-                continue
-
             print(f"MATCH FOUND: Player='{player_name}', Stats='{groups[1:]}'")
             sys.stdout.flush()
 
@@ -258,8 +254,7 @@ def parse_nba2k_stats(text):
     print("---------------------")
     sys.stdout.flush()
     
-    return stats_data
-# --- 5. ルート（ページの表示と処理） ---
+    return stats_data# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('index'))
