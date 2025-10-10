@@ -208,11 +208,15 @@ def parse_nba2k_stats(text):
     stats_data = {}
     player_lines = text.split('\n')
     
-    # ★★★ 正規表現を、プレイヤー名の前の記号を許容するように修正 ★★★
+    # ★★★ 正規表現を、行頭の記号やプレイヤー名のパターンをより厳密にチェックするように修正 ★★★
     stats_pattern = re.compile(
-        r'([+‣]?\s*[a-zA-Z0-9_-]{3,})\s+'  # 任意の記号(+または‣)とスペースを許容
+        # 行頭にオプションの記号(+‣)とスペースがあるかもしれない
+        r'^\s*([+‣]?\s*[a-zA-Z0-9_-]{3,})\s+'
+        # グレード (B+ など)
         r'[A-Z][+-]?\s+'
+        # 11個の数字が続く (PTS, REB, AST, STL, BLK, FOULS, TO, FGM, FGA, 3PM, 3PA)
         r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+        # シュートスタッツ (FGM/FGA, 3PM/3PA, FTM/FTA)
         r'(\d+)/(\d+)\s+'
         r'(\d+)/(\d+)\s+'
         r'(\d+)/(\d+)'
@@ -222,10 +226,11 @@ def parse_nba2k_stats(text):
     sys.stdout.flush()
     
     for line in player_lines:
-        match = stats_pattern.search(line.strip())
+        # 行の先頭からパターンに一致するかをチェック
+        match = stats_pattern.match(line.strip())
         if match:
             groups = match.groups()
-            # ★★★ プレイヤー名から不要な記号やスペースを削除 ★★★
+            # プレイヤー名から不要な記号やスペースを削除
             player_name = groups[0].replace('+', '').replace('‣', '').strip()
             
             print(f"MATCH FOUND: Player='{player_name}', Stats='{groups[1:]}'")
