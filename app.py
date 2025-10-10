@@ -1,4 +1,5 @@
 import os
+import sys
 import random
 import string
 import cloudinary
@@ -203,28 +204,23 @@ def parse_nba2k_stats(text):
     """Google Cloud Vision APIから返されたテキストを解析してスタッツを抽出する関数"""
     print("--- OCR RAW TEXT ---")
     print(text)
-    print("--------------------")
+    sys.stdout.flush()  # ログを強制出力
 
     stats_data = {}
     player_lines = text.split('\n')
     
-    # 2Kのスタッツ行に一致する可能性のある、より柔軟な正規表現
     stats_pattern = re.compile(
-        r'([a-zA-Z0-9_-]{3,})\s+'  # 3文字以上のプレイヤー名
-        r'[A-Z][+-]?\s+'          # 評価 (B+ など)
-        r'(\d+)\s+'               # PTS
-        r'(\d+)\s+'               # REB
-        r'(\d+)\s+'               # AST
-        r'(\d+)\s+'               # STL
-        r'(\d+)\s+'               # BLK
-        r'(\d+)\s+'               # FOULS
-        r'(\d+)\s+'               # TO
-        r'(\d+)/(\d+)\s+'         # FGM/FGA
-        r'(\d+)/(\d+)\s+'         # 3PM/3PA
-        r'(\d+)/(\d+)'            # FTM/FTA
+        r'([a-zA-Z0-9_-]{3,})\s+'
+        r'[A-Z][+-]?\s+'
+        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+        r'(\d+)/(\d+)\s+'
+        r'(\d+)/(\d+)\s+'
+        r'(\d+)/(\d+)'
     )
 
     print("--- PARSING LINES ---")
+    sys.stdout.flush()  # ログを強制出力
+    
     for line in player_lines:
         match = stats_pattern.search(line.strip())
         if match:
@@ -232,6 +228,7 @@ def parse_nba2k_stats(text):
             player_name = groups[0]
             
             print(f"MATCH FOUND: Player='{player_name}', Stats='{groups[1:]}'")
+            sys.stdout.flush()  # ログを強制出力
 
             stats_data[player_name] = {
                 'pts': int(groups[1]), 'reb': int(groups[2]), 'ast': int(groups[3]),
@@ -244,8 +241,9 @@ def parse_nba2k_stats(text):
     print(f"--- PARSED DATA ---")
     print(stats_data)
     print("---------------------")
+    sys.stdout.flush()  # ログを強制出力
+    
     return stats_data
-
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
