@@ -208,57 +208,36 @@ def parse_nba2k_stats(text):
     stats_data = {}
     player_lines = text.split('\n')
     
-    # ★★★ 正規表現を大幅に改善 ★★★
-    # プレイヤー名(英数字_-), グレード(A+), 数字, 数字/数字 の組み合わせを探す
+    # ★★★ 正規表現を、プレイヤー名の前の記号を許容するように修正 ★★★
     stats_pattern = re.compile(
-        r'([a-zA-Z0-9_-]{3,16})\s+'  # プレイヤー名本体
-        r'[A-Z][+-]?\s+'             # グレード
-        r'(\d+)\s+'                  # PTS
-        r'(\d+)\s+'                  # REB
-        r'(\d+)\s+'                  # AST
-        r'(\d+)\s+'                  # STL
-        r'(\d+)\s+'                  # BLK
-        r'(\d+)\s+'                  # FOULS
-        r'(\d+)\s+'                  # TO
-        r'(\d+/\d+)\s+'              # FGM/FGA
-        r'(\d+/\d+)\s+'              # 3PM/3PA
-        r'(\d+/\d+)'                 # FTM/FTA
+        r'([+‣]?\s*[a-zA-Z0-9_-]{3,})\s+'  # 任意の記号(+または‣)とスペースを許容
+        r'[A-Z][+-]?\s+'
+        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+        r'(\d+)/(\d+)\s+'
+        r'(\d+)/(\d+)\s+'
+        r'(\d+)/(\d+)'
     )
 
     print("--- PARSING LINES ---")
     sys.stdout.flush()
     
     for line in player_lines:
-        # 行の中からパターンに一致する部分を探す
         match = stats_pattern.search(line.strip())
         if match:
             groups = match.groups()
-            player_name = groups[0]
+            # ★★★ プレイヤー名から不要な記号やスペースを削除 ★★★
+            player_name = groups[0].replace('+', '').replace('‣', '').strip()
             
-            # "合計" やチーム名のようなキーワードが含まれている行は除外
-            if '合計' in line or 'Fear' in line or 'Claws' in line:
-                continue
-
             print(f"MATCH FOUND: Player='{player_name}', Stats='{groups[1:]}'")
             sys.stdout.flush()
 
-            try:
-                # FGM/FGAなどを分割
-                fgm, fga = map(int, groups[8].split('/'))
-                three_pm, three_pa = map(int, groups[9].split('/'))
-                ftm, fta = map(int, groups[10].split('/'))
-
-                stats_data[player_name] = {
-                    'pts': int(groups[1]), 'reb': int(groups[2]), 'ast': int(groups[3]),
-                    'stl': int(groups[4]), 'blk': int(groups[5]), 'foul': int(groups[6]),
-                    'turnover': int(groups[7]), 'fgm': fgm, 'fga': fga,
-                    'three_pm': three_pm, 'three_pa': three_pa,
-                    'ftm': ftm, 'fta': fta
-                }
-            except (ValueError, IndexError) as e:
-                print(f"Failed to parse stats for player line: {line}, Error: {e}")
-                sys.stdout.flush()
-                continue
+            stats_data[player_name] = {
+                'pts': int(groups[1]), 'reb': int(groups[2]), 'ast': int(groups[3]),
+                'stl': int(groups[4]), 'blk': int(groups[5]), 'foul': int(groups[6]),
+                'turnover': int(groups[7]), 'fgm': int(groups[8]), 'fga': int(groups[9]),
+                'three_pm': int(groups[10]), 'three_pa': int(groups[11]),
+                'ftm': int(groups[12]), 'fta': int(groups[13])
+            }
     
     print(f"--- PARSED DATA ---")
     print(stats_data)
