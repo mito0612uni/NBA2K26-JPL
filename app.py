@@ -199,51 +199,49 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(text):
-    """Google Cloud Vision APIから返されたテキストを解析してスタッツを抽出する関数"""
-    print("--- OCR RAW TEXT ---")
-    print(text)
-    sys.stdout.flush()
-
+def parse_nba2k_stats(response):
+    """Google Cloud Vision APIのレスポンスを直接解析してスタッツを抽出する関数"""
     stats_data = {}
-    player_lines = text.split('\n')
-    
-    # ★★★ 正規表現を、プレイヤー名の前の記号を許容するように修正 ★★★
-    stats_pattern = re.compile(
-        r'([+‣]?\s*[a-zA-Z0-9_-]{3,})\s+'  # 任意の記号(+または‣)とスペースを許容
-        r'[A-Z][+-]?\s+'
-        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
-        r'(\d+)/(\d+)\s+'
-        r'(\d+)/(\d+)\s+'
-        r'(\d+)/(\d+)'
-    )
+    texts = response.text_annotations
 
-    print("--- PARSING LINES ---")
-    sys.stdout.flush()
-    
-    for line in player_lines:
-        match = stats_pattern.search(line.strip())
-        if match:
-            groups = match.groups()
-            # ★★★ プレイヤー名から不要な記号やスペースを削除 ★★★
-            player_name = groups[0].replace('+', '').replace('‣', '').strip()
+    # texts[0]は画像全体のテキストなのでスキップし、単語ごとの情報をループ
+    for i in range(1, len(texts)):
+        word = texts[i].description
+        
+        # 経験則的に、2Kのプレイヤー名は4文字以上で、数字や記号を含むことが多い
+        # また、"GRD", "PTS", "合計" など、明らかにプレイヤー名でない単語は除外
+        if len(word) >= 4 and not word.isdigit() and word not in ["GRD", "PTS", "REB", "AST", "STL", "BLK", "FOULS", "TO", "合計"]:
+            # この単語の右側にあるテキストを探す
+            current_vertex = texts[i].bounding_poly.vertices[1] # 単語の右上頂点
             
-            print(f"MATCH FOUND: Player='{player_name}', Stats='{groups[1:]}'")
-            sys.stdout.flush()
-
-            stats_data[player_name] = {
-                'pts': int(groups[1]), 'reb': int(groups[2]), 'ast': int(groups[3]),
-                'stl': int(groups[4]), 'blk': int(groups[5]), 'foul': int(groups[6]),
-                'turnover': int(groups[7]), 'fgm': int(groups[8]), 'fga': int(groups[9]),
-                'three_pm': int(groups[10]), 'three_pa': int(groups[11]),
-                'ftm': int(groups[12]), 'fta': int(groups[13])
-            }
-    
-    print(f"--- PARSED DATA ---")
-    print(stats_data)
-    print("---------------------")
-    sys.stdout.flush()
-    
+            stats_line = []
+            for j in range(i + 1, len(texts)):
+                next_word = texts[j].description
+                next_vertex_start = texts[j].bounding_poly.vertices[0] # 次の単語の左上頂点
+                next_vertex_end = texts[j].bounding_poly.vertices[1]   # 次の単語の右上頂点
+                
+                # 同じ行にあるかどうかをY座標で簡易的に判定
+                if abs(current_vertex.y - next_vertex_start.y) < 10:
+                    # FGM/FGAのような形式か、ただの数字かを判定
+                    if re.match(r'^\d+/\d+$', next_word) or re.match(r'^\d+$', next_word):
+                        stats_line.append(next_word)
+                # 著しく右に離れた単語は別の行とみなす
+                if next_vertex_start.x > current_vertex.x + 800: # この値は画像の解像度によって調整が必要
+                    break
+            
+            # 11個のスタッツ（PTSからFTM/FTAまで）が並んでいる行をプレイヤーのスタッツ行と判断
+            if len(stats_line) >= 11:
+                try:
+                    fgm_fga = stats_line[7].split('/'); three_pm_pa = stats_line[8].split('/'); ftm_fta = stats_line[9].split('/')
+                    stats_data[word] = {
+                        'pts': int(stats_line[0]), 'reb': int(stats_line[1]), 'ast': int(stats_line[2]),
+                        'stl': int(stats_line[3]), 'blk': int(stats_line[4]), 'foul': int(stats_line[5]),
+                        'turnover': int(stats_line[6]), 'fgm': int(fgm_fga[0]), 'fga': int(fgm_fga[1]),
+                        'three_pm': int(three_pm_pa[0]), 'three_pa': int(three_pm_pa[1]),
+                        'ftm': int(ftm_fta[0]), 'fta': int(ftm_fta[1])
+                    }
+                except (ValueError, IndexError):
+                    continue
     return stats_data# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -546,7 +544,6 @@ def ocr_upload():
     file = request.files['image']
     if file.filename == '':
         return jsonify({'error': 'ファイルが選択されていません'}), 400
-    
     if not (file and allowed_file(file.filename)):
         return jsonify({'error': '許可されていないファイル形式です'}), 400
 
@@ -556,14 +553,17 @@ def ocr_upload():
         image = vision.Image(content=content)
         
         response = client.text_detection(image=image)
-        texts = response.text_annotations
         
-        if texts:
-            full_text = texts[0].description
-            parsed_data = parse_nba2k_stats(full_text)
-            return jsonify(parsed_data)
-        else:
-            return jsonify({'error': '画像からテキストを検出できませんでした'}), 400
+        if response.error.message:
+            raise Exception(response.error.message)
+
+        # ★★★ 変更点: 解析関数にレスポンス全体を渡す ★★★
+        parsed_data = parse_nba2k_stats(response)
+        
+        if not parsed_data:
+            return jsonify({'error': '有効なスタッツデータを抽出できませんでした。画像の解像度や向きを確認してください。'}), 500
+
+        return jsonify(parsed_data)
 
     except Exception as e:
         return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
