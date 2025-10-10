@@ -151,6 +151,14 @@ def calculate_standings(league_filter=None):
         })
     standings.sort(key=lambda x: (x['points'], x['diff']), reverse=True)
     return standings
+def get_stats_leaders():
+    leaders = {}
+    stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
+    for field_key, field_name in stat_fields.items():
+        avg_stat = func.avg(getattr(PlayerStat, field_key)).label('avg_value')
+        query_result = db.session.query(Player.name, avg_stat).join(PlayerStat, PlayerStat.player_id == Player.id).group_by(Player.id).order_by(db.desc('avg_value')).limit(5).all()
+        leaders[field_name] = query_result
+    return leaders
 
 def calculate_team_stats():
     team_stats_list = []
@@ -186,14 +194,6 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def get_stats_leaders():
-    leaders = {}
-    stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
-    for field_key, field_name in stat_fields.items():
-        avg_stat = func.avg(getattr(PlayerStat, field_key)).label('avg_value')
-        query_result = db.session.query(Player.name, avg_stat).join(PlayerStat, PlayerStat.player_id == Player.id).group_by(Player.id).order_by(db.desc('avg_value')).limit(5).all()
-        leaders[field_name] = query_result
-    return leaders
 
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
