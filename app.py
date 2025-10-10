@@ -204,32 +204,28 @@ def parse_nba2k_stats(response):
     stats_data = {}
     texts = response.text_annotations
 
-    # texts[0]は画像全体のテキストなのでスキップし、単語ごとの情報をループ
+    if not texts:
+        return {}
+
     for i in range(1, len(texts)):
         word = texts[i].description
         
-        # 経験則的に、2Kのプレイヤー名は4文字以上で、数字や記号を含むことが多い
-        # また、"GRD", "PTS", "合計" など、明らかにプレイヤー名でない単語は除外
         if len(word) >= 4 and not word.isdigit() and word not in ["GRD", "PTS", "REB", "AST", "STL", "BLK", "FOULS", "TO", "合計"]:
-            # この単語の右側にあるテキストを探す
-            current_vertex = texts[i].bounding_poly.vertices[1] # 単語の右上頂点
+            current_vertex = texts[i].bounding_poly.vertices[1]
             
             stats_line = []
             for j in range(i + 1, len(texts)):
                 next_word = texts[j].description
-                next_vertex_start = texts[j].bounding_poly.vertices[0] # 次の単語の左上頂点
-                next_vertex_end = texts[j].bounding_poly.vertices[1]   # 次の単語の右上頂点
+                next_vertex_start = texts[j].bounding_poly.vertices[0]
                 
-                # 同じ行にあるかどうかをY座標で簡易的に判定
-                if abs(current_vertex.y - next_vertex_start.y) < 10:
-                    # FGM/FGAのような形式か、ただの数字かを判定
+                # ★★★ Y座標の判定を緩やかに変更 (10 -> 15) ★★★
+                if abs(current_vertex.y - next_vertex_start.y) < 15:
                     if re.match(r'^\d+/\d+$', next_word) or re.match(r'^\d+$', next_word):
                         stats_line.append(next_word)
-                # 著しく右に離れた単語は別の行とみなす
-                if next_vertex_start.x > current_vertex.x + 800: # この値は画像の解像度によって調整が必要
+                
+                if next_vertex_start.x > current_vertex.x + 800:
                     break
             
-            # 11個のスタッツ（PTSからFTM/FTAまで）が並んでいる行をプレイヤーのスタッツ行と判断
             if len(stats_line) >= 11:
                 try:
                     fgm_fga = stats_line[7].split('/'); three_pm_pa = stats_line[8].split('/'); ftm_fta = stats_line[9].split('/')
