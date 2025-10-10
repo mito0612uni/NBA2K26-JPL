@@ -200,24 +200,37 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(text):
-    print("--- OCR RAW TEXT ---"); print(text); sys.stdout.flush()
+    """Google Cloud Vision APIから返されたテキストを解析してスタッツを抽出する関数"""
+    print("--- OCR RAW TEXT ---")
+    print(text)
+    sys.stdout.flush()
+
     stats_data = {}
     player_lines = text.split('\n')
+    
+    # ★★★ 正規表現を、プレイヤー名の前の記号を許容するように修正 ★★★
     stats_pattern = re.compile(
-        r'([a-zA-Z0-9_-]{3,})\s+'
+        r'([+‣]?\s*[a-zA-Z0-9_-]{3,})\s+'  # 任意の記号(+または‣)とスペースを許容
         r'[A-Z][+-]?\s+'
         r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
         r'(\d+)/(\d+)\s+'
         r'(\d+)/(\d+)\s+'
         r'(\d+)/(\d+)'
     )
-    print("--- PARSING LINES ---"); sys.stdout.flush()
+
+    print("--- PARSING LINES ---")
+    sys.stdout.flush()
+    
     for line in player_lines:
         match = stats_pattern.search(line.strip())
         if match:
             groups = match.groups()
-            player_name = groups[0]
-            print(f"MATCH FOUND: Player='{player_name}', Stats='{groups[1:]}'"); sys.stdout.flush()
+            # ★★★ プレイヤー名から不要な記号やスペースを削除 ★★★
+            player_name = groups[0].replace('+', '').replace('‣', '').strip()
+            
+            print(f"MATCH FOUND: Player='{player_name}', Stats='{groups[1:]}'")
+            sys.stdout.flush()
+
             stats_data[player_name] = {
                 'pts': int(groups[1]), 'reb': int(groups[2]), 'ast': int(groups[3]),
                 'stl': int(groups[4]), 'blk': int(groups[5]), 'foul': int(groups[6]),
@@ -225,7 +238,12 @@ def parse_nba2k_stats(text):
                 'three_pm': int(groups[10]), 'three_pa': int(groups[11]),
                 'ftm': int(groups[12]), 'fta': int(groups[13])
             }
-    print(f"--- PARSED DATA ---"); print(stats_data); print("---------------------"); sys.stdout.flush()
+    
+    print(f"--- PARSED DATA ---")
+    print(stats_data)
+    print("---------------------")
+    sys.stdout.flush()
+    
     return stats_data
 
 # --- 5. ルート（ページの表示と処理） ---
