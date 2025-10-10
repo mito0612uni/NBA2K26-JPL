@@ -513,6 +513,62 @@ def init_db_command():
     db.drop_all()
     db.create_all()
     print('Initialized the database.')
+def parse_nba2k_stats(text):
+    """Google Cloud Vision APIから返されたテキストを解析してスタッツを抽出する関数"""
+    stats_data = {}
+    player_lines = text.split('\n')
+    stats_pattern = re.compile(
+        r'([a-zA-Z0-9_-]+)\s+'
+        r'[A-Z][+-]?\s+'
+        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+        r'(\d+)/(\d+)\s+'
+        r'(\d+)/(\d+)\s+'
+        r'(\d+)/(\d+)'
+    )
+    for line in player_lines:
+        match = stats_pattern.search(line)
+        if match:
+            groups = match.groups()
+            player_name = groups[0]
+            stats_data[player_name] = {
+                'pts': int(groups[1]), 'reb': int(groups[2]), 'ast': int(groups[3]),
+                'stl': int(groups[4]), 'blk': int(groups[5]), 'foul': int(groups[6]),
+                'turnover': int(groups[7]), 'fgm': int(groups[8]), 'fga': int(groups[9]),
+                'three_pm': int(groups[10]), 'three_pa': int(groups[11]),
+                'ftm': int(groups[12]), 'fta': int(groups[13])
+            }
+    return stats_data
+
+@app.route('/ocr-upload', methods=['POST'])
+@login_required
+@admin_required
+def ocr_upload():
+    if 'image' not in request.files:
+        return jsonify({'error': '画像ファイルがありません'}), 400
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'ファイルが選択されていません'}), 400
+    
+    if not (file and allowed_file(file.filename)):
+        return jsonify({'error': '許可されていないファイル形式です'}), 400
+
+    try:
+        client = vision.ImageAnnotatorClient()
+        content = file.read()
+        image = vision.Image(content=content)
+        
+        response = client.text_detection(image=image)
+        texts = response.text_annotations
+        
+        if texts:
+            full_text = texts[0].description
+            parsed_data = parse_nba2k_stats(full_text)
+            return jsonify(parsed_data)
+        else:
+            return jsonify({'error': '画像からテキストを検出できませんでした'}), 400
+
+    except Exception as e:
+        return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
