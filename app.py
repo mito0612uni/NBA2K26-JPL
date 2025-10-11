@@ -199,45 +199,77 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(response):
-    """Google Cloud Vision APIのレスポンスを直接解析してスタッツを抽出する関数"""
+def parse_nba2k_stats(text):
+    """Google Cloud Vision APIから返されたテキストを解析してスタッツを抽出する関数"""
+    print("--- OCR RAW TEXT ---")
+    print(text)
+    sys.stdout.flush()
+
     stats_data = {}
-    texts = response.text_annotations
+    
+    # スタッツの「形」に一致するパターンを定義
+    # 「グレード(A+など) + 7つの数字 + 3つの分数形式」という最も特徴的な部分を探す
+    pattern = re.compile(
+        # グレード (例: B+)
+        r'([A-Z][+-]?)\s+'
+        # 7つの単独の数字 (PTS, REB, AST, STL, BLK, FOULS, TO)
+        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+        # 3つのシュートスタッツ (FGM/FGA, 3PM/3PA, FTM/FTA)
+        r'(\d+/\d+)\s+'
+        r'(\d+/\d+)\s+'
+        r'(\d+/\d+)'
+    )
 
-    if not texts:
-        return {}
+    print("--- PARSING LINES ---")
+    sys.stdout.flush()
 
-    for i in range(1, len(texts)):
-        word = texts[i].description
+    for line in text.split('\n'):
+        # 行の中から、スタッツの「形」に一致する部分を探す
+        match = pattern.search(line)
         
-        if len(word) >= 4 and not word.isdigit() and word not in ["GRD", "PTS", "REB", "AST", "STL", "BLK", "FOULS", "TO", "合計"]:
-            current_vertex = texts[i].bounding_poly.vertices[1]
+        if match:
+            # パターンが見つかった場合、その左側にあるテキストをプレイヤー名候補とする
+            player_name_part = line[:match.start()].strip()
             
-            stats_line = []
-            for j in range(i + 1, len(texts)):
-                next_word = texts[j].description
-                next_vertex_start = texts[j].bounding_poly.vertices[0]
-                
-                # ★★★ Y座標の判定を緩やかに変更 (10 -> 15) ★★★
-                if abs(current_vertex.y - next_vertex_start.y) < 15:
-                    if re.match(r'^\d+/\d+$', next_word) or re.match(r'^\d+$', next_word):
-                        stats_line.append(next_word)
-                
-                if next_vertex_start.x > current_vertex.x + 800:
-                    break
-            
-            if len(stats_line) >= 11:
-                try:
-                    fgm_fga = stats_line[7].split('/'); three_pm_pa = stats_line[8].split('/'); ftm_fta = stats_line[9].split('/')
-                    stats_data[word] = {
-                        'pts': int(stats_line[0]), 'reb': int(stats_line[1]), 'ast': int(stats_line[2]),
-                        'stl': int(stats_line[3]), 'blk': int(stats_line[4]), 'foul': int(stats_line[5]),
-                        'turnover': int(stats_line[6]), 'fgm': int(fgm_fga[0]), 'fga': int(fgm_fga[1]),
-                        'three_pm': int(three_pm_pa[0]), 'three_pa': int(three_pm_pa[1]),
-                        'ftm': int(ftm_fta[0]), 'fta': int(ftm_fta[1])
-                    }
-                except (ValueError, IndexError):
-                    continue
+            # 候補から、先頭の記号や不要なスペースを削除して整形する
+            player_name = re.sub(r'^[+‣▸\s]+', '', player_name_part).strip()
+
+            # 短すぎる名前や、明らかにプレイヤー名でない単語は除外
+            if not player_name or len(player_name) < 2 or "合計" in player_name:
+                continue
+
+            print(f"MATCH FOUND: Player='{player_name}'")
+            sys.stdout.flush()
+
+            try:
+                stats_groups = match.groups()
+                # FGM/FGAなどを分割
+                fgm, fga = map(int, stats_groups[8].split('/'))
+                three_pm, three_pa = map(int, stats_groups[9].split('/'))
+                ftm, fta = map(int, stats_groups[10].split('/'))
+
+                stats_data[player_name] = {
+                    'pts': int(stats_groups[1]),
+                    'reb': int(stats_groups[2]),
+                    'ast': int(stats_groups[3]),
+                    'stl': int(stats_groups[4]),
+                    'blk': int(stats_groups[5]),
+                    'foul': int(stats_groups[6]),
+                    'turnover': int(stats_groups[7]),
+                    'fgm': fgm, 'fga': fga,
+                    'three_pm': three_pm, 'three_pa': three_pa,
+                    'ftm': ftm, 'fta': fta
+                }
+            except (ValueError, IndexError) as e:
+                print(f"Failed to parse stats for player line: {line}, Error: {e}")
+                sys.stdout.flush()
+                continue
+    
+    print(f"--- PARSED DATA ---")
+    print(stats_data)
+    print("---------------------")
+    sys.stdout.flush()
+    
     return stats_data# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
