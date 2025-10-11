@@ -207,16 +207,24 @@ def parse_nba2k_stats(text):
 
     stats_data = {}
     
+    # ★★★ 正規表現を大幅に改善 ★★★
     # スタッツの「形」に一致するパターンを定義
-    # 「グレード(A+など) + 7つの数字 + 3つの分数形式」という最も特徴的な部分を探す
+    # 「グレード + 7つの数字 + 3つの分数形式」を探す
+    # 数字間のスペースは0個以上許容する(\s*)
     pattern = re.compile(
         # グレード (例: B+)
-        r'([A-Z][+-]?)\s+'
+        r'([A-Z][+-]?)\s*'
         # 7つの単独の数字 (PTS, REB, AST, STL, BLK, FOULS, TO)
-        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+        r'(\d+)\s*'
+        r'(\d+)\s*'
+        r'(\d+)\s*'
+        r'(\d+)\s*'
+        r'(\d+)\s*'
+        r'(\d+)\s*'
+        r'(\d+)\s*'
         # 3つのシュートスタッツ (FGM/FGA, 3PM/3PA, FTM/FTA)
-        r'(\d+/\d+)\s+'
-        r'(\d+/\d+)\s+'
+        r'(\d+/\d+)\s*'
+        r'(\d+/\d+)\s*'
         r'(\d+/\d+)'
     )
 
@@ -233,9 +241,9 @@ def parse_nba2k_stats(text):
             
             # 候補から、先頭の記号や不要なスペースを削除して整形する
             player_name = re.sub(r'^[+‣▸\s]+', '', player_name_part).strip()
-
-            # 短すぎる名前や、明らかにプレイヤー名でない単語は除外
-            if not player_name or len(player_name) < 2 or "合計" in player_name:
+            
+            # プレイヤー名が空、短すぎる、または除外キーワードを含む場合はスキップ
+            if not player_name or len(player_name) < 2 or "合計" in player_name or "GRD" in player_name:
                 continue
 
             print(f"MATCH FOUND: Player='{player_name}'")
@@ -244,21 +252,16 @@ def parse_nba2k_stats(text):
             try:
                 stats_groups = match.groups()
                 # FGM/FGAなどを分割
-                fgm, fga = map(int, stats_groups[8].split('/'))
-                three_pm, three_pa = map(int, stats_groups[9].split('/'))
-                ftm, fta = map(int, stats_groups[10].split('/'))
+                fgm_fga = stats_groups[8].split('/')
+                three_pm_pa = stats_groups[9].split('/')
+                ftm_fta = stats_groups[10].split('/')
 
                 stats_data[player_name] = {
-                    'pts': int(stats_groups[1]),
-                    'reb': int(stats_groups[2]),
-                    'ast': int(stats_groups[3]),
-                    'stl': int(stats_groups[4]),
-                    'blk': int(stats_groups[5]),
-                    'foul': int(stats_groups[6]),
-                    'turnover': int(stats_groups[7]),
-                    'fgm': fgm, 'fga': fga,
-                    'three_pm': three_pm, 'three_pa': three_pa,
-                    'ftm': ftm, 'fta': fta
+                    'pts': int(stats_groups[1]), 'reb': int(stats_groups[2]), 'ast': int(stats_groups[3]),
+                    'stl': int(stats_groups[4]), 'blk': int(stats_groups[5]), 'foul': int(stats_groups[6]),
+                    'turnover': int(stats_groups[7]), 'fgm': int(fgm_fga[0]), 'fga': int(fgm_fga[1]),
+                    'three_pm': int(three_pm_pa[0]), 'three_pa': int(three_pm_pa[1]),
+                    'ftm': int(ftm_fta[0]), 'fta': int(ftm_fta[1])
                 }
             except (ValueError, IndexError) as e:
                 print(f"Failed to parse stats for player line: {line}, Error: {e}")
