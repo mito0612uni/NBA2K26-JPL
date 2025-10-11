@@ -200,77 +200,54 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(text):
-    """Google Cloud Vision APIから返されたテキストを解析してスタッツを抽出する関数（新アプローチ）"""
-    print("--- OCR RAW TEXT ---")
+    """テキストからスタッツの数値ブロックだけを順番に抽出する関数"""
+    print("--- OCR RAW TEXT (New Method) ---")
     print(text)
     sys.stdout.flush()
 
-    stats_data = {}
+    found_stats_blocks = []
     
-    # スタッツの「形」に一致するパターンを定義
-    # 「グレード(A+など) + 7つの数字 + 3つの分数形式」という最も特徴的な部分を探す
+    # 「グレード(A+) + 7つの数字 + 3つの分数」というパターンを探す
     pattern = re.compile(
-        # グレード (例: B+)
-        r'([A-Z][+-]?)\s+'
+        # グレード (例: B+) - これは行の特定に使うが、データとしては使わない
+        r'[A-Z][+-]?\s*'
         # 7つの単独の数字 (PTS, REB, AST, STL, BLK, FOULS, TO)
-        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+        r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
         # 3つのシュートスタッツ (FGM/FGA, 3PM/3PA, FTM/FTA)
-        r'(\d+/\d+)\s+'
-        r'(\d+/\d+)\s+'
-        r'(\d+/\d+)'
+        r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
     )
 
-    print("--- PARSING LINES (NEW ANCHOR METHOD) ---")
+    print("--- FINDING STATS BLOCKS ---")
     sys.stdout.flush()
 
-    for line in text.split('\n'):
-        # 行の中から、スタッツの「形」に一致する部分を探す
-        match = pattern.search(line)
-        
-        if match:
-            # パターンが見つかった場合、その左側にあるテキストをプレイヤー名候補とする
-            player_name_part = line[:match.start()].strip()
-            
-            # 候補から、先頭の記号や不要なスペースを削除して整形する
-            player_name = re.sub(r'^[+‣▸\s▶]+', '', player_name_part).strip()
+    # findall を使って、テキスト中にある全てのスタッツブロックを順番に取得
+    matches = pattern.findall(text)
+    
+    for match_group in matches:
+        print(f"FOUND BLOCK: {match_group}")
+        sys.stdout.flush()
+        try:
+            # FGM/FGAなどを分割
+            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[7], match_group[8], match_group[9]
+            fgm, fga = map(int, fgm_fga_str.split('/'))
+            three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
+            ftm, fta = map(int, ftm_fta_str.split('/'))
 
-            # 短すぎる名前や、明らかにプレイヤー名でない単語は除外
-            if not player_name or len(player_name) < 2 or "合計" in player_name:
-                continue
-
-            print(f"MATCH FOUND: Player='{player_name}'")
+            found_stats_blocks.append({
+                'pts': int(match_group[0]), 'reb': int(match_group[1]), 'ast': int(match_group[2]),
+                'stl': int(match_group[3]), 'blk': int(match_group[4]), 'foul': int(match_group[5]),
+                'turnover': int(match_group[6]), 'fgm': fgm, 'fga': fga,
+                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+            })
+        except (ValueError, IndexError) as e:
+            print(f"Failed to parse a block: {match_group}, Error: {e}")
             sys.stdout.flush()
-
-            try:
-                stats_groups = match.groups()
-                # FGM/FGAなどを分割
-                fgm, fga = map(int, stats_groups[8].split('/'))
-                three_pm, three_pa = map(int, stats_groups[9].split('/'))
-                ftm, fta = map(int, stats_groups[10].split('/'))
-
-                stats_data[player_name] = {
-                    'pts': int(stats_groups[1]),
-                    'reb': int(stats_groups[2]),
-                    'ast': int(stats_groups[3]),
-                    'stl': int(stats_groups[4]),
-                    'blk': int(stats_groups[5]),
-                    'foul': int(stats_groups[6]),
-                    'turnover': int(stats_groups[7]),
-                    'fgm': fgm, 'fga': fga,
-                    'three_pm': three_pm, 'three_pa': three_pa,
-                    'ftm': ftm, 'fta': fta
-                }
-            except (ValueError, IndexError) as e:
-                print(f"Failed to parse stats for player line: {line}, Error: {e}")
-                sys.stdout.flush()
-                continue
-    
-    print(f"--- PARSED DATA ---")
-    print(stats_data)
-    print("---------------------")
+            continue
+            
+    print(f"--- PARSED {len(found_stats_blocks)} STATS BLOCKS ---")
     sys.stdout.flush()
     
-    return stats_data# --- 5. ルート（ページの表示と処理） ---
+    return found_stats_blocks# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('index'))
