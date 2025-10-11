@@ -200,73 +200,75 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(text):
-    """Google Cloud Vision APIから返されたテキストを解析してスタッツを抽出する関数"""
+    """Google Cloud Vision APIから返されたテキストを解析してスタッツを抽出する関数（新アプローチ）"""
     print("--- OCR RAW TEXT ---")
     print(text)
     sys.stdout.flush()
 
     stats_data = {}
     
-    # ★★★ 正規表現を大幅に改善 ★★★
-    # スタッツの「形」に一致するパターンを定義
-    # 「グレード + 7つの数字 + 3つの分数形式」を探す
-    # 数字間のスペースは0個以上許容する(\s*)
-    pattern = re.compile(
-        # グレード (例: B+)
-        r'([A-Z][+-]?)\s*'
-        # 7つの単独の数字 (PTS, REB, AST, STL, BLK, FOULS, TO)
-        r'(\d+)\s*'
-        r'(\d+)\s*'
-        r'(\d+)\s*'
-        r'(\d+)\s*'
-        r'(\d+)\s*'
-        r'(\d+)\s*'
-        r'(\d+)\s*'
-        # 3つのシュートスタッツ (FGM/FGA, 3PM/3PA, FTM/FTA)
-        r'(\d+/\d+)\s*'
-        r'(\d+/\d+)\s*'
-        r'(\d+/\d+)'
+    # 最も信頼できるアンカー：行末の3つの分数形式スタッツ
+    anchor_pattern = re.compile(
+        r'(\d+/\d+)\s+(\d+/\d+)\s+(\d+/\d+)$'
     )
 
-    print("--- PARSING LINES ---")
+    print("--- PARSING LINES (NEW ANCHOR METHOD) ---")
     sys.stdout.flush()
 
     for line in text.split('\n'):
-        # 行の中から、スタッツの「形」に一致する部分を探す
-        match = pattern.search(line)
+        line = line.strip()
+        match = anchor_pattern.search(line)
         
-        if match:
-            # パターンが見つかった場合、その左側にあるテキストをプレイヤー名候補とする
-            player_name_part = line[:match.start()].strip()
+        # アンカー（3つの分数）が見つからなければ、それはスタッツ行ではない
+        if not match:
+            continue
+
+        # アンカーより前の部分を取得
+        before_anchor = line[:match.start()].strip()
+        
+        # 前の部分から、数字とグレード（A+など）をすべて抽出
+        parts = re.findall(r'[A-Z][+-]?|\d+', before_anchor)
+        
+        # 少なくともグレード1つとスタッツ7つ（合計8要素）がなければスキップ
+        if len(parts) < 8:
+            continue
+        
+        # 後ろから8番目がグレードであると仮定
+        grade = parts[-8]
+        if not re.match(r'^[A-Z][+-]?$', grade):
+            continue # グレードの形式でなければスキップ
+
+        try:
+            # グレードの後の7つをスタッツとして取得
+            pts, reb, ast, stl, blk, foul, turnover = map(int, parts[-7:])
             
-            # 候補から、先頭の記号や不要なスペースを削除して整形する
-            player_name = re.sub(r'^[+‣▸\s]+', '', player_name_part).strip()
-            
-            # プレイヤー名が空、短すぎる、または除外キーワードを含む場合はスキップ
-            if not player_name or len(player_name) < 2 or "合計" in player_name or "GRD" in player_name:
+            # グレードより前の部分をプレイヤー名候補とする
+            player_name_part = before_anchor[:before_anchor.rfind(grade)].strip()
+            # プレイヤー名から不要な記号を削除
+            player_name = re.sub(r'^[+‣▸\s▶]+', '', player_name_part).strip()
+
+            if not player_name or len(player_name) < 2 or "合計" in player_name:
                 continue
 
-            print(f"MATCH FOUND: Player='{player_name}'")
+            print(f"SUCCESSFULLY PARSED: Player='{player_name}'")
             sys.stdout.flush()
+            
+            # アンカー部分の分数スタッツを解析
+            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match.groups()
+            fgm, fga = map(int, fgm_fga_str.split('/'))
+            three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
+            ftm, fta = map(int, ftm_fta_str.split('/'))
 
-            try:
-                stats_groups = match.groups()
-                # FGM/FGAなどを分割
-                fgm_fga = stats_groups[8].split('/')
-                three_pm_pa = stats_groups[9].split('/')
-                ftm_fta = stats_groups[10].split('/')
+            stats_data[player_name] = {
+                'pts': pts, 'reb': reb, 'ast': ast, 'stl': stl, 'blk': blk,
+                'foul': foul, 'turnover': turnover, 'fgm': fgm, 'fga': fga,
+                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+            }
 
-                stats_data[player_name] = {
-                    'pts': int(stats_groups[1]), 'reb': int(stats_groups[2]), 'ast': int(stats_groups[3]),
-                    'stl': int(stats_groups[4]), 'blk': int(stats_groups[5]), 'foul': int(stats_groups[6]),
-                    'turnover': int(stats_groups[7]), 'fgm': int(fgm_fga[0]), 'fga': int(fgm_fga[1]),
-                    'three_pm': int(three_pm_pa[0]), 'three_pa': int(three_pm_pa[1]),
-                    'ftm': int(ftm_fta[0]), 'fta': int(ftm_fta[1])
-                }
-            except (ValueError, IndexError) as e:
-                print(f"Failed to parse stats for player line: {line}, Error: {e}")
-                sys.stdout.flush()
-                continue
+        except (ValueError, IndexError) as e:
+            print(f"Failed to parse stats for line: {line}, Error: {e}")
+            sys.stdout.flush()
+            continue
     
     print(f"--- PARSED DATA ---")
     print(stats_data)
