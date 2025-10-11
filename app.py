@@ -207,68 +207,63 @@ def parse_nba2k_stats(text):
 
     stats_data = {}
     
-    # 最も信頼できるアンカー：行末の3つの分数形式スタッツ
-    anchor_pattern = re.compile(
-        r'(\d+/\d+)\s+(\d+/\d+)\s+(\d+/\d+)$'
+    # スタッツの「形」に一致するパターンを定義
+    # 「グレード(A+など) + 7つの数字 + 3つの分数形式」という最も特徴的な部分を探す
+    pattern = re.compile(
+        # グレード (例: B+)
+        r'([A-Z][+-]?)\s+'
+        # 7つの単独の数字 (PTS, REB, AST, STL, BLK, FOULS, TO)
+        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+        # 3つのシュートスタッツ (FGM/FGA, 3PM/3PA, FTM/FTA)
+        r'(\d+/\d+)\s+'
+        r'(\d+/\d+)\s+'
+        r'(\d+/\d+)'
     )
 
     print("--- PARSING LINES (NEW ANCHOR METHOD) ---")
     sys.stdout.flush()
 
     for line in text.split('\n'):
-        line = line.strip()
-        match = anchor_pattern.search(line)
+        # 行の中から、スタッツの「形」に一致する部分を探す
+        match = pattern.search(line)
         
-        # アンカー（3つの分数）が見つからなければ、それはスタッツ行ではない
-        if not match:
-            continue
-
-        # アンカーより前の部分を取得
-        before_anchor = line[:match.start()].strip()
-        
-        # 前の部分から、数字とグレード（A+など）をすべて抽出
-        parts = re.findall(r'[A-Z][+-]?|\d+', before_anchor)
-        
-        # 少なくともグレード1つとスタッツ7つ（合計8要素）がなければスキップ
-        if len(parts) < 8:
-            continue
-        
-        # 後ろから8番目がグレードであると仮定
-        grade = parts[-8]
-        if not re.match(r'^[A-Z][+-]?$', grade):
-            continue # グレードの形式でなければスキップ
-
-        try:
-            # グレードの後の7つをスタッツとして取得
-            pts, reb, ast, stl, blk, foul, turnover = map(int, parts[-7:])
+        if match:
+            # パターンが見つかった場合、その左側にあるテキストをプレイヤー名候補とする
+            player_name_part = line[:match.start()].strip()
             
-            # グレードより前の部分をプレイヤー名候補とする
-            player_name_part = before_anchor[:before_anchor.rfind(grade)].strip()
-            # プレイヤー名から不要な記号を削除
+            # 候補から、先頭の記号や不要なスペースを削除して整形する
             player_name = re.sub(r'^[+‣▸\s▶]+', '', player_name_part).strip()
 
+            # 短すぎる名前や、明らかにプレイヤー名でない単語は除外
             if not player_name or len(player_name) < 2 or "合計" in player_name:
                 continue
 
-            print(f"SUCCESSFULLY PARSED: Player='{player_name}'")
+            print(f"MATCH FOUND: Player='{player_name}'")
             sys.stdout.flush()
-            
-            # アンカー部分の分数スタッツを解析
-            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match.groups()
-            fgm, fga = map(int, fgm_fga_str.split('/'))
-            three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
-            ftm, fta = map(int, ftm_fta_str.split('/'))
 
-            stats_data[player_name] = {
-                'pts': pts, 'reb': reb, 'ast': ast, 'stl': stl, 'blk': blk,
-                'foul': foul, 'turnover': turnover, 'fgm': fgm, 'fga': fga,
-                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
-            }
+            try:
+                stats_groups = match.groups()
+                # FGM/FGAなどを分割
+                fgm, fga = map(int, stats_groups[8].split('/'))
+                three_pm, three_pa = map(int, stats_groups[9].split('/'))
+                ftm, fta = map(int, stats_groups[10].split('/'))
 
-        except (ValueError, IndexError) as e:
-            print(f"Failed to parse stats for line: {line}, Error: {e}")
-            sys.stdout.flush()
-            continue
+                stats_data[player_name] = {
+                    'pts': int(stats_groups[1]),
+                    'reb': int(stats_groups[2]),
+                    'ast': int(stats_groups[3]),
+                    'stl': int(stats_groups[4]),
+                    'blk': int(stats_groups[5]),
+                    'foul': int(stats_groups[6]),
+                    'turnover': int(stats_groups[7]),
+                    'fgm': fgm, 'fga': fga,
+                    'three_pm': three_pm, 'three_pa': three_pa,
+                    'ftm': ftm, 'fta': fta
+                }
+            except (ValueError, IndexError) as e:
+                print(f"Failed to parse stats for player line: {line}, Error: {e}")
+                sys.stdout.flush()
+                continue
     
     print(f"--- PARSED DATA ---")
     print(stats_data)
