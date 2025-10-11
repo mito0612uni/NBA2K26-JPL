@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+
 {% block content %}
 <style>
   /* このページ専用の簡単なスタイル */
@@ -27,7 +28,7 @@
 {% if current_user.is_authenticated and current_user.is_admin %}
 <div style="border: 2px dashed #007bff; padding: 15px; margin-bottom: 20px; border-radius: 5px;">
   <h4>OCR自動入力 (試験機能)</h4>
-  <p>試合結果のスクリーンショット画像をアップロードしてください。</p>
+  <p>スクリーンショット画像をアップロードしてください。</p>
   <input type="file" id="ocr-image-input" accept="image/*">
   <button type="button" id="ocr-submit-btn">画像から読み込む</button>
   <div id="ocr-feedback"></div>
@@ -114,22 +115,96 @@
 
 
 {% block scripts %}
-{% block scripts %}
 <script>
-// ... (既存の existingStats, DOMContentLoaded などは変更なし) ...
+const existingStats = {{ stats | tojson }};
+
 document.addEventListener('DOMContentLoaded', function() {
-    // ... (既存の statHeaders, statFields などの定義は変更なし) ...
+  const statHeaders = ['選手名', '得点', 'ｱｼｽﾄ', 'ﾘﾊﾞｳﾝﾄﾞ', 'ｽﾃｨｰﾙ', 'ﾌﾞﾛｯｸ', 'ﾌｧｳﾙ', 'TO', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA'];
+  const statFields = ['player_name', 'pts', 'ast', 'reb', 'stl', 'blk', 'foul', 'turnover', 'fgm', 'fga', 'three_pm', 'three_pa', 'ftm', 'fta'];
+  const isUserAuthenticated = {{ current_user.is_authenticated | tojson }};
 
-    // --- (手動入力関連の関数は変更なし) ---
+  function createHeaderRow() {
+    return '<tr>' + statHeaders.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  }
 
-    // ★★★ OCRボタンの処理を刷新 ★★★
+  function createPlayerRow(playerId, playerName, teamId) {
+    const playerStats = existingStats[String(playerId)] || {};
+    let rowHTML = `<td>${playerName}</td>`;
+    statFields.slice(1).forEach(field => {
+      const value = playerStats[field] || 0;
+      const readonly = isUserAuthenticated ? '' : 'readonly';
+      rowHTML += `<td><input type="number" name="player_${playerId}_${field}" value="${value}" min="0" ${readonly}></td>`;
+    });
+    return `<tr data-player-id="${playerId}" data-team-id="${teamId}">${rowHTML}</tr>`;
+  }
+  
+  function populateInitialStats() {
+    const statsHeaderHome = document.getElementById('stats-header-home');
+    const statsBodyHome = document.getElementById('stats-body-home');
+    const statsHeaderAway = document.getElementById('stats-header-away');
+    const statsBodyAway = document.getElementById('stats-body-away');
+    let homeHasStats = false;
+    let awayHasStats = false;
+
+    for (const playerId in existingStats) {
+      const player = document.querySelector(`.bench-player[data-player-id='${playerId}']`);
+      if (player) {
+        const teamId = player.dataset.teamId;
+        const playerName = player.dataset.playerName;
+        if (teamId === 'home') {
+          statsBodyHome.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+          if (isUserAuthenticated) player.classList.add('selected'); 
+          homeHasStats = true;
+        } else if (teamId === 'away') {
+          statsBodyAway.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+          if (isUserAuthenticated) player.classList.add('selected');
+          awayHasStats = true;
+        }
+      }
+    }
+    
+    if (homeHasStats) statsHeaderHome.innerHTML = createHeaderRow();
+    if (awayHasStats) statsHeaderAway.innerHTML = createHeaderRow();
+  }
+
+  populateInitialStats();
+
+  if (isUserAuthenticated) {
+    document.querySelectorAll('.bench-player').forEach(playerSpan => {
+      playerSpan.addEventListener('click', function() {
+        if (this.classList.contains('selected')) return;
+        const teamId = this.dataset.teamId;
+        const statsBody = document.getElementById(`stats-body-${teamId}`);
+        if (statsBody.children.length >= 5) {
+          alert('選択できる選手は5人までです。');
+          return;
+        }
+        const statsHeader = document.getElementById(`stats-header-${teamId}`);
+        if (statsHeader.children.length === 0) statsHeader.innerHTML = createHeaderRow();
+        const playerId = this.dataset.playerId;
+        const playerName = this.dataset.playerName;
+        statsBody.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+        this.classList.add('selected');
+      });
+    });
+
+    document.querySelectorAll('.reset-btn').forEach(button => {
+      button.addEventListener('click', function() {
+        const teamId = this.dataset.teamId;
+        document.getElementById(`stats-header-${teamId}`).innerHTML = '';
+        document.getElementById(`stats-body-${teamId}`).innerHTML = '';
+        document.querySelectorAll(`#bench-${teamId} .bench-player`).forEach(span => {
+          span.classList.remove('selected');
+        });
+      });
+    });
+
     const ocrBtn = document.getElementById('ocr-submit-btn');
     if (ocrBtn) {
         ocrBtn.addEventListener('click', function() {
             const imageInput = document.getElementById('ocr-image-input');
             const feedbackDiv = document.getElementById('ocr-feedback');
-
-            // 1. 先に選択されている選手を取得
+            
             const selectedPlayerRows = document.querySelectorAll('#stats-body-home tr, #stats-body-away tr');
             if (selectedPlayerRows.length === 0) {
                 feedbackDiv.textContent = 'エラー: 先に出場選手を選択してください。';
@@ -145,16 +220,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
             feedbackDiv.textContent = '画像をアップロードして解析中...';
             feedbackDiv.style.color = 'blue';
-
             const formData = new FormData();
             formData.append('image', imageInput.files[0]);
-
             fetch("{{ url_for('ocr_upload') }}", {
                 method: 'POST',
                 body: formData
             })
             .then(response => response.json())
-            .then(statsList => { // data を statsList に変更
+            .then(statsList => {
                 if (statsList.error) {
                     feedbackDiv.textContent = `エラー: ${statsList.error}`;
                     feedbackDiv.style.color = 'red';
@@ -166,10 +239,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     feedbackDiv.style.color = 'orange';
                 }
 
-                // 2. 選択した選手と、検出したスタッツを順番に割り当て
                 selectedPlayerRows.forEach((row, index) => {
                     const stats = statsList[index];
-                    if (!stats) return; // 検出したスタッツが足りない場合は終了
+                    if (!stats) return;
 
                     const playerId = row.dataset.playerId;
                     for (const statName in stats) {
@@ -191,6 +263,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }
+  }
 });
 </script>
 {% endblock %}
