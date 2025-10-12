@@ -199,55 +199,86 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(text):
-    """テキストからスタッツの数値ブロックだけを順番に抽出する関数"""
-    print("--- OCR RAW TEXT (New Method) ---")
-    print(text)
+def parse_nba2k_stats(response):
+    """Google Cloud Vision APIのレスポンス全体を解析してスタッツを抽出する関数（新アプローチ）"""
+    stats_data = {}
+    annotations = response.text_annotations
+    if not annotations:
+        return {}
+
+    print("--- OCR RAW TEXT (Final Method) ---")
+    print(annotations[0].description)
     sys.stdout.flush()
 
-    found_stats_blocks = []
-    
-    # 「グレード(A+) + 7つの数字 + 3つの分数」というパターンを探す
-    pattern = re.compile(
-        # グレード (例: B+) - これは行の特定に使うが、データとしては使わない
-        r'[A-Z][+-]?\s*'
-        # 7つの単独の数字 (PTS, REB, AST, STL, BLK, FOULS, TO)
-        r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
-        # 3つのシュートスタッツ (FGM/FGA, 3PM/3PA, FTM/FTA)
-        r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
-    )
+    # パターン定義
+    fraction_pattern = re.compile(r'^\d+/\d+$')
+    grade_pattern = re.compile(r'^[A-Z][+-]?$')
+    number_pattern = re.compile(r'^\d+$')
 
-    print("--- FINDING STATS BLOCKS ---")
-    sys.stdout.flush()
-
-    # findall を使って、テキスト中にある全てのスタッツブロックを順番に取得
-    matches = pattern.findall(text)
-    
-    for match_group in matches:
-        print(f"FOUND BLOCK: {match_group}")
-        sys.stdout.flush()
-        try:
-            # FGM/FGAなどを分割
-            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[7], match_group[8], match_group[9]
-            fgm, fga = map(int, fgm_fga_str.split('/'))
-            three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
-            ftm, fta = map(int, ftm_fta_str.split('/'))
-
-            found_stats_blocks.append({
-                'pts': int(match_group[0]), 'reb': int(match_group[1]), 'ast': int(match_group[2]),
-                'stl': int(match_group[3]), 'blk': int(match_group[4]), 'foul': int(match_group[5]),
-                'turnover': int(match_group[6]), 'fgm': fgm, 'fga': fga,
-                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
-            })
-        except (ValueError, IndexError) as e:
-            print(f"Failed to parse a block: {match_group}, Error: {e}")
-            sys.stdout.flush()
+    # 単語リストを逆順に探索し、スタッツ行の末尾（アンカー）を探す
+    for i in range(len(annotations) - 1, 10, -1):
+        # アンカー：FTM/FTAの分数形式
+        if not fraction_pattern.match(annotations[i].description):
             continue
+
+        try:
+            # アンカーが見つかったら、その前の10個の単語がスタッツのパターンに一致するか検証
+            three_p_fraction = annotations[i-1].description
+            fg_fraction = annotations[i-2].description
+            stats_numbers = [annotations[i-j].description for j in range(3, 10)] # TO, FOULS, BLK, STL, AST, REB, PTS
+            grade = annotations[i-10].description
+
+            # パターン検証：分数2つ、数字7つ、グレード1つ
+            if not (fraction_pattern.match(three_p_fraction) and
+                    fraction_pattern.match(fg_fraction) and
+                    all(number_pattern.match(n) for n in stats_numbers) and
+                    grade_pattern.match(grade)):
+                continue
+
+            # パターンが一致したら、その左側にある単語をプレイヤー名として収集
+            player_name_words = []
+            grade_y_coord = annotations[i-10].bounding_poly.vertices[0].y
             
-    print(f"--- PARSED {len(found_stats_blocks)} STATS BLOCKS ---")
+            for j in range(i - 11, 0, -1): # 0番目は全体テキストなので除外
+                word_ann = annotations[j]
+                word_y_coord = word_ann.bounding_poly.vertices[0].y
+                
+                # 同じ行にある単語か（Y座標のズレが20ピクセル以内）
+                if abs(word_y_coord - grade_y_coord) < 20:
+                    # 明らかな非プレイヤー名は除外
+                    if word_ann.description not in ["GRD", "PTS", "REB", "AST", "STL", "BLK", "FOULS", "TO", "合計", "+", "‣", "▸", "▶"]:
+                        player_name_words.insert(0, word_ann.description)
+                else:
+                    break # 行が変わったら収集を終了
+            
+            if not player_name_words: continue
+
+            player_name = "".join(player_name_words)
+            if player_name in stats_data: continue # 重複処理をスキップ
+
+            print(f"SUCCESSFULLY PARSED: Player='{player_name}'")
+            sys.stdout.flush()
+
+            # スタッツを辞書に格納
+            fgm, fga = map(int, fg_fraction.split('/'))
+            three_pm, three_pa = map(int, three_p_fraction.split('/'))
+            ftm, fta = map(int, annotations[i].description.split('/'))
+
+            stats_data[player_name] = {
+                'pts': int(stats_numbers[6]), 'reb': int(stats_numbers[5]), 'ast': int(stats_numbers[4]),
+                'stl': int(stats_numbers[3]), 'blk': int(stats_numbers[2]), 'foul': int(stats_numbers[1]),
+                'turnover': int(stats_numbers[0]), 'fgm': fgm, 'fga': fga,
+                'three_pm': three_pm, 'three_pa': three_pa,
+                'ftm': ftm, 'fta': fta
+            }
+
+        except (IndexError, ValueError) as e:
+            continue
+
+    print(f"--- PARSED DATA ({len(stats_data)} players) ---")
+    print(stats_data)
     sys.stdout.flush()
-    
-    return found_stats_blocks# --- 5. ルート（ページの表示と処理） ---
+    return stats_data# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('index'))
@@ -557,16 +588,16 @@ def ocr_upload():
         content = file.read()
         image = vision.Image(content=content)
         
+        # APIからレスポンス全体を取得
         response = client.text_detection(image=image)
-        
         if response.error.message:
             raise Exception(response.error.message)
 
-        # ★★★ 変更点: 解析関数にレスポンス全体を渡す ★★★
+        # 解析関数にレスポンス全体を渡す
         parsed_data = parse_nba2k_stats(response)
         
         if not parsed_data:
-            return jsonify({'error': '有効なスタッツデータを抽出できませんでした。画像の解像度や向きを確認してください。'}), 500
+            return jsonify({'error': '有効なスタッツデータを抽出できませんでした。画像の向きや解像度を確認してください。'}), 500
 
         return jsonify(parsed_data)
 
