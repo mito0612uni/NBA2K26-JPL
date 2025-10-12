@@ -170,7 +170,7 @@ document.addEventListener('DOMContentLoaded', function() {
   populateInitialStats();
 
   if (isUserAuthenticated) {
-    // ★★★ ここからが復活させた手動入力の処理 ★★★
+    // --- 手動入力の処理 ---
     document.querySelectorAll('.bench-player').forEach(playerSpan => {
       playerSpan.addEventListener('click', function() {
         if (this.classList.contains('selected')) return;
@@ -199,13 +199,72 @@ document.addEventListener('DOMContentLoaded', function() {
         });
       });
     });
-    // ★★★ ここまでが手動入力の処理 ★★★
 
-    // --- OCRボタンの処理 (変更なし) ---
+    // ★★★ ここからが復活させたOCRボタンの処理 ★★★
     const ocrBtn = document.getElementById('ocr-submit-btn');
     if (ocrBtn) {
         ocrBtn.addEventListener('click', function() {
-            // ... (OCRのロジックは省略) ...
+            const imageInput = document.getElementById('ocr-image-input');
+            const feedbackDiv = document.getElementById('ocr-feedback');
+            
+            const formData = new FormData();
+            
+            const selectedPlayerRows = document.querySelectorAll('#stats-body-home tr, #stats-body-away tr');
+            if (selectedPlayerRows.length === 0) {
+                feedbackDiv.textContent = 'エラー: 先に出場選手を選択してください。';
+                feedbackDiv.style.color = 'red';
+                return;
+            }
+            selectedPlayerRows.forEach(row => {
+                const playerId = row.dataset.playerId;
+                const playerSpan = document.querySelector(`.bench-player[data-player-id='${playerId}']`);
+                if (playerSpan) {
+                    formData.append('selected_players[]', playerSpan.dataset.playerName);
+                }
+            });
+            
+            if (imageInput.files.length === 0) {
+                feedbackDiv.textContent = '画像ファイルを選択してください。';
+                feedbackDiv.style.color = 'red';
+                return;
+            }
+            formData.append('image', imageInput.files[0]);
+
+            feedbackDiv.textContent = '画像をアップロードして解析中...';
+            feedbackDiv.style.color = 'blue';
+
+            fetch("{{ url_for('ocr_upload') }}", {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    feedbackDiv.textContent = `エラー: ${data.error}`;
+                    feedbackDiv.style.color = 'red';
+                    return;
+                }
+
+                let playersFound = 0;
+                for (const playerName in data) {
+                    const playerSpan = [...document.querySelectorAll('.bench-player')].find(span => span.dataset.playerName === playerName);
+                    if (playerSpan) {
+                        playersFound++;
+                        const stats = data[playerName];
+                        const playerId = playerSpan.dataset.playerId;
+                        for (const statName in stats) {
+                            const input = document.querySelector(`input[name='player_${playerId}_${statName}']`);
+                            if (input) { input.value = stats[statName]; }
+                        }
+                    }
+                }
+                feedbackDiv.textContent = `成功: ${playersFound}人の選手にスタッツを反映しました。`;
+                feedbackDiv.style.color = 'green';
+            })
+            .catch(error => {
+                feedbackDiv.textContent = `通信エラーが発生しました: ${error}`;
+                feedbackDiv.style.color = 'red';
+            });
         });
     }
   }
