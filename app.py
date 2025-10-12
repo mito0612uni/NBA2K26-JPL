@@ -199,85 +199,76 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(response):
-    """Google Cloud Vision APIのレスポンス全体を解析してスタッツを抽出する関数（新アプローチ）"""
-    stats_data = {}
-    annotations = response.text_annotations
-    if not annotations:
-        return {}
-
+def parse_nba2k_stats(text):
+    """テキストを単語に分解し、スタッツの構成要素からプレイヤー行を再構築する関数"""
     print("--- OCR RAW TEXT (Final Method) ---")
-    print(annotations[0].description)
+    print(text)
     sys.stdout.flush()
 
-    # パターン定義
+    stats_data = {}
+    
     fraction_pattern = re.compile(r'^\d+/\d+$')
-    grade_pattern = re.compile(r'^[A-Z][+-]?$')
     number_pattern = re.compile(r'^\d+$')
+    grade_pattern = re.compile(r'^[A-Z][+-]?$')
 
-    # 単語リストを逆順に探索し、スタッツ行の末尾（アンカー）を探す
-    for i in range(len(annotations) - 1, 10, -1):
-        # アンカー：FTM/FTAの分数形式
-        if not fraction_pattern.match(annotations[i].description):
-            continue
+    print("--- PARSING LINES (NEW Detective METHOD) ---")
+    sys.stdout.flush()
 
-        try:
-            # アンカーが見つかったら、その前の10個の単語がスタッツのパターンに一致するか検証
-            three_p_fraction = annotations[i-1].description
-            fg_fraction = annotations[i-2].description
-            stats_numbers = [annotations[i-j].description for j in range(3, 10)] # TO, FOULS, BLK, STL, AST, REB, PTS
-            grade = annotations[i-10].description
+    for line in text.split('\n'):
+        parts = line.strip().split()
+        
+        # 行を単語に分解し、それぞれの種類を判別
+        player_name_parts = []
+        single_stats = []
+        fraction_stats = []
 
-            # パターン検証：分数2つ、数字7つ、グレード1つ
-            if not (fraction_pattern.match(three_p_fraction) and
-                    fraction_pattern.match(fg_fraction) and
-                    all(number_pattern.match(n) for n in stats_numbers) and
-                    grade_pattern.match(grade)):
+        for part in parts:
+            if number_pattern.match(part):
+                single_stats.append(part)
+            elif fraction_pattern.match(part):
+                fraction_stats.append(part)
+            elif grade_pattern.match(part):
+                continue # グレードは無視
+            else:
+                # 上記以外はプレイヤー名の一部とみなす
+                player_name_parts.append(part)
+        
+        # スタッツの「証拠」が揃っているか確認 (数字7個、分数3個)
+        if len(single_stats) == 7 and len(fraction_stats) == 3:
+            player_name = "".join(player_name_parts)
+            
+            # 記号などを最終的に除去
+            player_name = re.sub(r'^[+‣▸▶]+', '', player_name).strip()
+            
+            if not player_name or "合計" in player_name:
                 continue
-
-            # パターンが一致したら、その左側にある単語をプレイヤー名として収集
-            player_name_words = []
-            grade_y_coord = annotations[i-10].bounding_poly.vertices[0].y
-            
-            for j in range(i - 11, 0, -1): # 0番目は全体テキストなので除外
-                word_ann = annotations[j]
-                word_y_coord = word_ann.bounding_poly.vertices[0].y
-                
-                # 同じ行にある単語か（Y座標のズレが20ピクセル以内）
-                if abs(word_y_coord - grade_y_coord) < 20:
-                    # 明らかな非プレイヤー名は除外
-                    if word_ann.description not in ["GRD", "PTS", "REB", "AST", "STL", "BLK", "FOULS", "TO", "合計", "+", "‣", "▸", "▶"]:
-                        player_name_words.insert(0, word_ann.description)
-                else:
-                    break # 行が変わったら収集を終了
-            
-            if not player_name_words: continue
-
-            player_name = "".join(player_name_words)
-            if player_name in stats_data: continue # 重複処理をスキップ
 
             print(f"SUCCESSFULLY PARSED: Player='{player_name}'")
             sys.stdout.flush()
 
-            # スタッツを辞書に格納
-            fgm, fga = map(int, fg_fraction.split('/'))
-            three_pm, three_pa = map(int, three_p_fraction.split('/'))
-            ftm, fta = map(int, annotations[i].description.split('/'))
+            try:
+                # 順番通りにスタッツを割り当て
+                pts, reb, ast, stl, blk, foul, turnover = map(int, single_stats)
+                fgm_fga_str, three_pm_pa_str, ftm_fta_str = fraction_stats
+                
+                fgm, fga = map(int, fgm_fga_str.split('/'))
+                three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
+                ftm, fta = map(int, ftm_fta_str.split('/'))
 
-            stats_data[player_name] = {
-                'pts': int(stats_numbers[6]), 'reb': int(stats_numbers[5]), 'ast': int(stats_numbers[4]),
-                'stl': int(stats_numbers[3]), 'blk': int(stats_numbers[2]), 'foul': int(stats_numbers[1]),
-                'turnover': int(stats_numbers[0]), 'fgm': fgm, 'fga': fga,
-                'three_pm': three_pm, 'three_pa': three_pa,
-                'ftm': ftm, 'fta': fta
-            }
-
-        except (IndexError, ValueError) as e:
-            continue
-
+                stats_data[player_name] = {
+                    'pts': pts, 'reb': reb, 'ast': ast, 'stl': stl, 'blk': blk,
+                    'foul': foul, 'turnover': turnover, 'fgm': fgm, 'fga': fga,
+                    'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+                }
+            except (ValueError, IndexError) as e:
+                print(f"Failed to parse stats values for line: {line}, Error: {e}")
+                sys.stdout.flush()
+                continue
+    
     print(f"--- PARSED DATA ({len(stats_data)} players) ---")
     print(stats_data)
     sys.stdout.flush()
+    
     return stats_data# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
