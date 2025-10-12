@@ -199,57 +199,62 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(text):
-    """テキストを単語に分解し、スタッツの構成要素からプレイヤー行を再構築する関数"""
-    print("--- OCR RAW TEXT (Final Method) ---")
-    print(text)
-    sys.stdout.flush()
-
+def parse_nba2k_stats(response):
+    """Google Cloud Vision APIのレスポンス全体から単語の座標を使ってスタッツを抽出する"""
     stats_data = {}
-    
-    fraction_pattern = re.compile(r'^\d+/\d+$')
-    number_pattern = re.compile(r'^\d+$')
-    grade_pattern = re.compile(r'^[A-Z][+-]?$')
+    annotations = response.text_annotations
+    if not annotations:
+        return {}
 
-    print("--- PARSING LINES (NEW Detective METHOD) ---")
+    print("--- OCR RAW TEXT (Final Method) ---")
+    print(annotations[0].description)
     sys.stdout.flush()
 
-    for line in text.split('\n'):
-        parts = line.strip().split()
+    # Y座標を基準に単語を行にグループ化する
+    lines = defaultdict(list)
+    for i in range(1, len(annotations)): # 0番目は全体テキストなのでスキップ
+        ann = annotations[i]
+        # 単語の中心のY座標を行のキーとする
+        y_center = (ann.bounding_poly.vertices[0].y + ann.bounding_poly.vertices[2].y) / 2
+        # Y座標が近い単語を同じ行とみなす（許容誤差15ピクセル）
+        line_key = round(y_center / 15)
+        lines[line_key].append(ann.description)
+
+    print("--- RECONSTRUCTED LINES FROM COORDINATES ---")
+    sys.stdout.flush()
+
+    for y_key in sorted(lines.keys()):
+        line_parts = lines[y_key]
+        line_text = " ".join(line_parts)
+        print(f"Line {y_key}: {line_text}")
+        sys.stdout.flush()
+
+        # 各行からスタッツの証拠を探す
+        numbers = [p for p in line_parts if re.match(r'^\d+$', p)]
+        fractions = [p for p in line_parts if re.match(r'^\d+/\d+$', p)]
         
-        # 行を単語に分解し、それぞれの種類を判別
-        player_name_parts = []
-        single_stats = []
-        fraction_stats = []
-
-        for part in parts:
-            if number_pattern.match(part):
-                single_stats.append(part)
-            elif fraction_pattern.match(part):
-                fraction_stats.append(part)
-            elif grade_pattern.match(part):
-                continue # グレードは無視
-            else:
-                # 上記以外はプレイヤー名の一部とみなす
-                player_name_parts.append(part)
-        
-        # スタッツの「証拠」が揃っているか確認 (数字7個、分数3個)
-        if len(single_stats) == 7 and len(fraction_stats) == 3:
-            player_name = "".join(player_name_parts)
-            
-            # 記号などを最終的に除去
-            player_name = re.sub(r'^[+‣▸▶]+', '', player_name).strip()
-            
-            if not player_name or "合計" in player_name:
-                continue
-
-            print(f"SUCCESSFULLY PARSED: Player='{player_name}'")
-            sys.stdout.flush()
-
+        # 証拠が揃っているか？ (7つの数字と3つの分数)
+        if len(numbers) == 7 and len(fractions) == 3:
             try:
-                # 順番通りにスタッツを割り当て
-                pts, reb, ast, stl, blk, foul, turnover = map(int, single_stats)
-                fgm_fga_str, three_pm_pa_str, ftm_fta_str = fraction_stats
+                # プレイヤー名候補を抽出 (数字、分数、グレード、記号以外)
+                player_name_parts = [p for p in line_parts if not (
+                    re.match(r'^\d+$', p) or 
+                    re.match(r'^\d+/\d+$', p) or 
+                    re.match(r'^[A-Z][+-]?$', p) or
+                    p in ['+','‣','▸','▶']
+                )]
+                
+                if not player_name_parts: continue
+                player_name = "".join(player_name_parts)
+
+                if "合計" in player_name: continue
+                
+                print(f"SUCCESSFULLY PARSED: Player='{player_name}'")
+                sys.stdout.flush()
+
+                # スタッツを辞書に格納
+                pts, reb, ast, stl, blk, foul, turnover = map(int, numbers)
+                fgm_fga_str, three_pm_pa_str, ftm_fta_str = fractions
                 
                 fgm, fga = map(int, fgm_fga_str.split('/'))
                 three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
@@ -258,10 +263,11 @@ def parse_nba2k_stats(text):
                 stats_data[player_name] = {
                     'pts': pts, 'reb': reb, 'ast': ast, 'stl': stl, 'blk': blk,
                     'foul': foul, 'turnover': turnover, 'fgm': fgm, 'fga': fga,
-                    'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+                    'three_pm': three_pm, 'three_pa': three_pa,
+                    'ftm': ftm, 'fta': fta
                 }
             except (ValueError, IndexError) as e:
-                print(f"Failed to parse stats values for line: {line}, Error: {e}")
+                print(f"Failed to parse stats values for line: {line_text}, Error: {e}")
                 sys.stdout.flush()
                 continue
     
