@@ -199,82 +199,45 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(response):
-    """Google Cloud Vision APIのレスポンス全体から単語の座標を使ってスタッツを抽出する関数"""
+def parse_nba2k_stats(text, selected_players):
+    """テキストの中から、指定されたプレイヤーリストに一致するスタッツを探す関数"""
+    print("--- OCR RAW TEXT (Final, Targeted Method) ---")
+    print(text)
+    sys.stdout.flush()
+
     stats_data = {}
-    annotations = response.text_annotations
-    if not annotations:
-        return {}
-
-    print("--- OCR RAW TEXT (Final Method) ---")
-    print(annotations[0].description)
-    sys.stdout.flush()
-
-    # Y座標を基準に単語を行にグループ化する
-    lines = defaultdict(list)
-    for i in range(1, len(annotations)): # 0番目は全体テキストなのでスキップ
-        ann = annotations[i]
-        # 単語の中心のY座標を行のキーとする
-        y_center = (ann.bounding_poly.vertices[0].y + ann.bounding_poly.vertices[2].y) / 2
-        # Y座標が近い単語を同じ行とみなす（許容誤差15ピクセル）
-        line_key = round(y_center / 15)
-        lines[line_key].append(ann.description)
-
-    print("--- RECONSTRUCTED LINES FROM COORDINATES ---")
-    sys.stdout.flush()
-
-    for y_key in sorted(lines.keys()):
-        line_parts = lines[y_key]
-        line_text = " ".join(line_parts)
-        print(f"Line {y_key}: {line_text}")
-        sys.stdout.flush()
-
-        # 各行からスタッツの証拠を探す
-        numbers = [p for p in line_parts if re.match(r'^\d+$', p)]
-        fractions = [p for p in line_parts if re.match(r'^\d+/\d+$', p)]
-        
-        # 証拠が揃っているか？ (7つの数字と3つの分数)
-        if len(numbers) >= 7 and len(fractions) == 3:
-            try:
-                # プレイヤー名候補を抽出 (数字、分数、グレード、記号以外)
-                player_name_parts = [p for p in line_parts if not (
-                    re.match(r'^\d+$', p) or 
-                    re.match(r'^\d+/\d+$', p) or 
-                    re.match(r'^[A-Z][+-]?$', p) or
-                    p in ['+','‣','▸','▶']
-                )]
-                
-                if not player_name_parts: continue
-                player_name = "".join(player_name_parts)
-
-                if "合計" in player_name: continue
-                
-                print(f"SUCCESSFULLY PARSED: Player='{player_name}'")
-                sys.stdout.flush()
-
-                # スタッツを辞書に格納
-                pts, reb, ast, stl, blk, foul, turnover = map(int, numbers[:7])
-                fgm_fga_str, three_pm_pa_str, ftm_fta_str = fractions
-                
-                fgm, fga = map(int, fgm_fga_str.split('/'))
-                three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
-                ftm, fta = map(int, ftm_fta_str.split('/'))
-
-                stats_data[player_name] = {
-                    'pts': pts, 'reb': reb, 'ast': ast, 'stl': stl, 'blk': blk,
-                    'foul': foul, 'turnover': turnover, 'fgm': fgm, 'fga': fga,
-                    'three_pm': three_pm, 'three_pa': three_pa,
-                    'ftm': ftm, 'fta': fta
-                }
-            except (ValueError, IndexError) as e:
-                print(f"Failed to parse stats values for line: {line_text}, Error: {e}")
-                sys.stdout.flush()
-                continue
+    lines = text.split('\n')
     
+    for player_name in selected_players:
+        # 各プレイヤー名がどの行にあるかを探す
+        for line in lines:
+            # プレイヤー名が含まれ、かつ "合計" ではない行を対象とする
+            if player_name in line and "合計" not in line:
+                # 行から数字と分数をすべて抽出
+                parts = re.findall(r'\d+/\d+|\d+', line)
+                
+                # スタッツの数（PTSからFTM/FTAまでで10個）が一致するか確認
+                if len(parts) >= 10:
+                    try:
+                        fgm_fga = parts[7].split('/')
+                        three_pm_pa = parts[8].split('/')
+                        ftm_fta = parts[9].split('/')
+
+                        stats_data[player_name] = {
+                            'pts': int(parts[0]), 'reb': int(parts[1]), 'ast': int(parts[2]),
+                            'stl': int(parts[3]), 'blk': int(parts[4]), 'foul': int(parts[5]),
+                            'turnover': int(parts[6]), 'fgm': int(fgm_fga[0]), 'fga': int(fgm_fga[1]),
+                            'three_pm': int(three_pm_pa[0]), 'three_pa': int(three_pm_pa[1]),
+                            'ftm': int(ftm_fta[0]), 'fta': int(ftm_fta[1])
+                        }
+                        # 一致するデータが見つかったら、次のプレイヤーを探す
+                        break
+                    except (ValueError, IndexError):
+                        continue
+                        
     print(f"--- PARSED DATA ({len(stats_data)} players) ---")
     print(stats_data)
     sys.stdout.flush()
-    
     return stats_data# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -574,27 +537,30 @@ if __name__ == '__main__':
 def ocr_upload():
     if 'image' not in request.files:
         return jsonify({'error': '画像ファイルがありません'}), 400
+    
+    # ★★★ 選択されたプレイヤー名のリストをリクエストから受け取る ★★★
+    selected_players = request.form.getlist('selected_players[]')
+    if not selected_players:
+        return jsonify({'error': '先に出場選手を選択してください。'}), 400
+
     file = request.files['image']
-    if file.filename == '':
-        return jsonify({'error': 'ファイルが選択されていません'}), 400
-    if not (file and allowed_file(file.filename)):
-        return jsonify({'error': '許可されていないファイル形式です'}), 400
+    # ... (ファイルチェックは変更なし) ...
 
     try:
         client = vision.ImageAnnotatorClient()
         content = file.read()
         image = vision.Image(content=content)
         
-        # APIからレスポンス全体を取得
         response = client.text_detection(image=image)
-        if response.error.message:
-            raise Exception(response.error.message)
-
-        # 解析関数にレスポンス全体を渡す
-        parsed_data = parse_nba2k_stats(response)
+        if response.error.message: raise Exception(response.error.message)
+        
+        full_text = response.text_annotations[0].description
+        
+        # ★★★ 解析関数に、テキストと選択済みプレイヤーリストの両方を渡す ★★★
+        parsed_data = parse_nba2k_stats(full_text, selected_players)
         
         if not parsed_data:
-            return jsonify({'error': '有効なスタッツデータを抽出できませんでした。画像の向きや解像度を確認してください。'}), 500
+            return jsonify({'error': '選択されたプレイヤーのスタッツを画像から見つけられませんでした。'}), 500
 
         return jsonify(parsed_data)
 

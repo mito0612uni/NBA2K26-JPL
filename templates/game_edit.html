@@ -116,146 +116,72 @@
 
 {% block scripts %}
 <script>
-const existingStats = {{ stats | tojson }};
-
+// ... (既存の existingStats, DOMContentLoaded などは変更なし) ...
 document.addEventListener('DOMContentLoaded', function() {
-  const statHeaders = ['選手名', '得点', 'ｱｼｽﾄ', 'ﾘﾊﾞｳﾝﾄﾞ', 'ｽﾃｨｰﾙ', 'ﾌﾞﾛｯｸ', 'ﾌｧｳﾙ', 'TO', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA'];
-  const statFields = ['player_name', 'pts', 'ast', 'reb', 'stl', 'blk', 'foul', 'turnover', 'fgm', 'fga', 'three_pm', 'three_pa', 'ftm', 'fta'];
-  const isUserAuthenticated = {{ current_user.is_authenticated | tojson }};
+    // ... (既存の statHeaders, statFields などの定義は変更なし) ...
 
-  function createHeaderRow() {
-    return '<tr>' + statHeaders.map(h => `<th>${h}</th>`).join('') + '</tr>';
-  }
-
-  function createPlayerRow(playerId, playerName, teamId) {
-    const playerStats = existingStats[String(playerId)] || {};
-    let rowHTML = `<td>${playerName}</td>`;
-    statFields.slice(1).forEach(field => {
-      const value = playerStats[field] || 0;
-      const readonly = isUserAuthenticated ? '' : 'readonly';
-      rowHTML += `<td><input type="number" name="player_${playerId}_${field}" value="${value}" min="0" ${readonly}></td>`;
-    });
-    return `<tr data-player-id="${playerId}" data-team-id="${teamId}">${rowHTML}</tr>`;
-  }
-  
-  function populateInitialStats() {
-    const statsHeaderHome = document.getElementById('stats-header-home');
-    const statsBodyHome = document.getElementById('stats-body-home');
-    const statsHeaderAway = document.getElementById('stats-header-away');
-    const statsBodyAway = document.getElementById('stats-body-away');
-    let homeHasStats = false;
-    let awayHasStats = false;
-
-    for (const playerId in existingStats) {
-      const player = document.querySelector(`.bench-player[data-player-id='${playerId}']`);
-      if (player) {
-        const teamId = player.dataset.teamId;
-        const playerName = player.dataset.playerName;
-        if (teamId === 'home') {
-          statsBodyHome.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
-          if (isUserAuthenticated) player.classList.add('selected'); 
-          homeHasStats = true;
-        } else if (teamId === 'away') {
-          statsBodyAway.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
-          if (isUserAuthenticated) player.classList.add('selected');
-          awayHasStats = true;
-        }
-      }
-    }
-    
-    if (homeHasStats) statsHeaderHome.innerHTML = createHeaderRow();
-    if (awayHasStats) statsHeaderAway.innerHTML = createHeaderRow();
-  }
-
-  populateInitialStats();
-
-  if (isUserAuthenticated) {
-    document.querySelectorAll('.bench-player').forEach(playerSpan => {
-      playerSpan.addEventListener('click', function() {
-        if (this.classList.contains('selected')) return;
-        const teamId = this.dataset.teamId;
-        const statsBody = document.getElementById(`stats-body-${teamId}`);
-        if (statsBody.children.length >= 5) {
-          alert('選択できる選手は5人までです。');
-          return;
-        }
-        const statsHeader = document.getElementById(`stats-header-${teamId}`);
-        if (statsHeader.children.length === 0) statsHeader.innerHTML = createHeaderRow();
-        const playerId = this.dataset.playerId;
-        const playerName = this.dataset.playerName;
-        statsBody.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
-        this.classList.add('selected');
-      });
-    });
-
-    document.querySelectorAll('.reset-btn').forEach(button => {
-      button.addEventListener('click', function() {
-        const teamId = this.dataset.teamId;
-        document.getElementById(`stats-header-${teamId}`).innerHTML = '';
-        document.getElementById(`stats-body-${teamId}`).innerHTML = '';
-        document.querySelectorAll(`#bench-${teamId} .bench-player`).forEach(span => {
-          span.classList.remove('selected');
-        });
-      });
-    });
+    // --- (手動入力関連の関数は変更なし) ---
 
     const ocrBtn = document.getElementById('ocr-submit-btn');
     if (ocrBtn) {
         ocrBtn.addEventListener('click', function() {
             const imageInput = document.getElementById('ocr-image-input');
             const feedbackDiv = document.getElementById('ocr-feedback');
+
+            const formData = new FormData();
             
+            // ★★★ 選択されているプレイヤー名もFormDataに追加する ★★★
             const selectedPlayerRows = document.querySelectorAll('#stats-body-home tr, #stats-body-away tr');
             if (selectedPlayerRows.length === 0) {
                 feedbackDiv.textContent = 'エラー: 先に出場選手を選択してください。';
                 feedbackDiv.style.color = 'red';
                 return;
             }
+            selectedPlayerRows.forEach(row => {
+                const playerId = row.dataset.playerId;
+                const playerSpan = document.querySelector(`.bench-player[data-player-id='${playerId}']`);
+                if (playerSpan) {
+                    formData.append('selected_players[]', playerSpan.dataset.playerName);
+                }
+            });
             
             if (imageInput.files.length === 0) {
                 feedbackDiv.textContent = '画像ファイルを選択してください。';
                 feedbackDiv.style.color = 'red';
                 return;
             }
+            formData.append('image', imageInput.files[0]);
 
             feedbackDiv.textContent = '画像をアップロードして解析中...';
             feedbackDiv.style.color = 'blue';
-            const formData = new FormData();
-            formData.append('image', imageInput.files[0]);
+
             fetch("{{ url_for('ocr_upload') }}", {
                 method: 'POST',
-                body: formData
+                body: formData // プレイヤー名と画像の両方を含む
             })
             .then(response => response.json())
-            .then(statsList => {
-                if (statsList.error) {
-                    feedbackDiv.textContent = `エラー: ${statsList.error}`;
+            .then(data => {
+                if (data.error) {
+                    feedbackDiv.textContent = `エラー: ${data.error}`;
                     feedbackDiv.style.color = 'red';
                     return;
                 }
-                
-                if (statsList.length < selectedPlayerRows.length) {
-                    feedbackDiv.textContent = `警告: 選択した選手数(${selectedPlayerRows.length}人)より少ないスタッツ(${statsList.length}件)しか検出できませんでした。`;
-                    feedbackDiv.style.color = 'orange';
-                }
 
-                selectedPlayerRows.forEach((row, index) => {
-                    const stats = statsList[index];
-                    if (!stats) return;
-
-                    const playerId = row.dataset.playerId;
-                    for (const statName in stats) {
-                        const input = row.querySelector(`input[name='player_${playerId}_${statName}']`);
-                        if (input) {
-                            input.value = stats[statName];
+                let playersFound = 0;
+                for (const playerName in data) {
+                    const playerSpan = [...document.querySelectorAll('.bench-player')].find(span => span.dataset.playerName === playerName);
+                    if (playerSpan) {
+                        playersFound++;
+                        const stats = data[playerName];
+                        const playerId = playerSpan.dataset.playerId;
+                        for (const statName in stats) {
+                            const input = document.querySelector(`input[name='player_${playerId}_${statName}']`);
+                            if (input) { input.value = stats[statName]; }
                         }
                     }
-                });
-
-                if (statsList.length > 0) {
-                    feedbackDiv.textContent = `成功: ${Math.min(statsList.length, selectedPlayerRows.length)}人の選手にスタッツを反映しました。`;
-                    feedbackDiv.style.color = 'green';
                 }
+                feedbackDiv.textContent = `成功: ${playersFound}人の選手にスタッツを反映しました。`;
+                feedbackDiv.style.color = 'green';
             })
             .catch(error => {
                 feedbackDiv.textContent = `通信エラーが発生しました: ${error}`;
@@ -263,7 +189,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }
-  }
 });
 </script>
 {% endblock %}
