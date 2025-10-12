@@ -200,7 +200,7 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(response):
-    """Google Cloud Vision APIのレスポンス全体から単語の座標を使ってスタッツを抽出する"""
+    """Google Cloud Vision APIのレスポンス全体から単語の座標を使ってスタッツを抽出する関数"""
     stats_data = {}
     annotations = response.text_annotations
     if not annotations:
@@ -234,7 +234,7 @@ def parse_nba2k_stats(response):
         fractions = [p for p in line_parts if re.match(r'^\d+/\d+$', p)]
         
         # 証拠が揃っているか？ (7つの数字と3つの分数)
-        if len(numbers) == 7 and len(fractions) == 3:
+        if len(numbers) >= 7 and len(fractions) == 3:
             try:
                 # プレイヤー名候補を抽出 (数字、分数、グレード、記号以外)
                 player_name_parts = [p for p in line_parts if not (
@@ -253,7 +253,7 @@ def parse_nba2k_stats(response):
                 sys.stdout.flush()
 
                 # スタッツを辞書に格納
-                pts, reb, ast, stl, blk, foul, turnover = map(int, numbers)
+                pts, reb, ast, stl, blk, foul, turnover = map(int, numbers[:7])
                 fgm_fga_str, three_pm_pa_str, ftm_fta_str = fractions
                 
                 fgm, fga = map(int, fgm_fga_str.split('/'))
