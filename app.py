@@ -201,7 +201,7 @@ def calculate_team_stats():
 
 def parse_nba2k_stats(text):
     """テキストからスタッツの数値ブロックだけを順番に抽出する関数"""
-    print("--- OCR RAW TEXT (New Method) ---")
+    print("--- OCR RAW TEXT (Final Method) ---")
     print(text)
     sys.stdout.flush()
 
@@ -556,7 +556,10 @@ def ocr_upload():
         response = client.text_detection(image=image)
         if response.error.message: raise Exception(response.error.message)
         
-        full_text = response.text_annotations[0].description
+        # 最初の注釈（画像全体のテキスト）を取得
+        full_text = ""
+        if response.text_annotations:
+            full_text = response.text_annotations[0].description
         
         # 解析関数はテキストだけを受け取る
         parsed_data = parse_nba2k_stats(full_text)
