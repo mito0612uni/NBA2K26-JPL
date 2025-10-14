@@ -199,53 +199,80 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(text):
-    """テキストからスタッツの数値ブロックだけを順番に抽出する関数"""
-    print("--- OCR RAW TEXT (Final Method) ---")
+def parse_nba2k_stats(text, selected_players):
+    """テキストの中から、指定されたプレイヤーリストに一致するスタッツを探す（最終アンカー方式）"""
+    print("--- OCR RAW TEXT (Final, Anchor Method) ---")
     print(text)
     sys.stdout.flush()
 
-    found_stats_blocks = []
+    stats_data = {}
     
-    # 「グレード(A+) + 7つの数字 + 3つの分数」というパターンを探す
-    # 数字間のスペースは0個以上(\s*)を許容し、柔軟性を持たせる
-    pattern = re.compile(
-        r'[A-Z][+-]?\s*'
-        r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
-        r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
-    )
+    # 行末の3つの分数形式をアンカーとして探す正規表現
+    anchor_pattern = re.compile(r'(\d+/\d+)\s+(\d+/\d+)\s+(\d+/\d+)$')
 
-    print("--- FINDING STATS BLOCKS ---")
-    sys.stdout.flush()
+    for player_name in selected_players:
+        found_player = False
+        for line in text.split('\n'):
+            # 選択されたプレイヤー名が含まれる行を探す
+            if player_name in line and "合計" not in line:
+                match = anchor_pattern.search(line)
+                
+                # アンカー（3つの分数）が見つからなければ、この行はスキップ
+                if not match:
+                    continue
 
-    # findall を使って、テキスト中にある全てのスタッツブロックを順番に取得
-    matches = pattern.findall(text)
-    
-    for match_group in matches:
-        print(f"FOUND BLOCK: {match_group}")
-        sys.stdout.flush()
-        try:
-            # FGM/FGAなどを分割
-            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[7], match_group[8], match_group[9]
-            fgm, fga = map(int, fgm_fga_str.split('/'))
-            three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
-            ftm, fta = map(int, ftm_fta_str.split('/'))
+                # アンカーより前の部分を取得
+                before_anchor = line[:match.start()].strip()
+                
+                # 前の部分から、数字とグレード（A+など）をすべて抽出
+                parts = re.findall(r'[A-Z][+-]?|\d+', before_anchor)
+                
+                # 数字だけを抽出
+                numbers_only = [p for p in parts if p.isdigit()]
+                
+                # 数字が7個に満たない場合、結合された数字を分割する
+                final_numbers = []
+                for num_str in numbers_only:
+                    if len(num_str) > 1 and int(num_str) > 60: # PTS以外のスタッツで60以上はあり得ないと仮定
+                        final_numbers.extend(list(num_str)) # '0210' -> ['0', '2', '1', '0']
+                    else:
+                        final_numbers.append(num_str)
 
-            found_stats_blocks.append({
-                'pts': int(match_group[0]), 'reb': int(match_group[1]), 'ast': int(match_group[2]),
-                'stl': int(match_group[3]), 'blk': int(match_group[4]), 'foul': int(match_group[5]),
-                'turnover': int(match_group[6]), 'fgm': fgm, 'fga': fga,
-                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
-            })
-        except (ValueError, IndexError) as e:
-            print(f"Failed to parse a block: {match_group}, Error: {e}")
-            sys.stdout.flush()
+                # 最終的に数字が7個以上あるか確認
+                if len(final_numbers) < 7:
+                    continue
+
+                print(f"SUCCESSFULLY PARSED: Player='{player_name}'")
+                sys.stdout.flush()
+
+                try:
+                    # 後ろから7個の数字をスタッツとして取得
+                    pts, reb, ast, stl, blk, foul, turnover = map(int, final_numbers[-7:])
+                    
+                    fgm_fga_str, three_pm_pa_str, ftm_fta_str = match.groups()
+                    fgm, fga = map(int, fgm_fga_str.split('/'))
+                    three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
+                    ftm, fta = map(int, ftm_fta_str.split('/'))
+
+                    stats_data[player_name] = {
+                        'pts': pts, 'reb': reb, 'ast': ast, 'stl': stl, 'blk': blk,
+                        'foul': foul, 'turnover': turnover, 'fgm': fgm, 'fga': fga,
+                        'three_pm': three_pm, 'three_pa': three_pa,
+                        'ftm': ftm, 'fta': fta
+                    }
+                    found_player = True
+                    break # このプレイヤーの処理は完了
+                except (ValueError, IndexError) as e:
+                    print(f"Failed to parse stats values for line: {line}, Error: {e}")
+                    sys.stdout.flush()
+                    continue
+        if found_player:
             continue
             
-    print(f"--- PARSED {len(found_stats_blocks)} STATS BLOCKS ---")
+    print(f"--- PARSED DATA ({len(stats_data)} players) ---")
+    print(stats_data)
     sys.stdout.flush()
-    
-    return found_stats_blocks# --- 5. ルート（ページの表示と処理） ---
+    return stats_data# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('index'))
