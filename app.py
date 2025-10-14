@@ -199,46 +199,53 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(text, selected_players):
-    """テキストの中から、指定されたプレイヤーリストに一致するスタッツを探す関数"""
-    print("--- OCR RAW TEXT (Final, Targeted Method) ---")
+def parse_nba2k_stats(text):
+    """テキストからスタッツの数値ブロックだけを順番に抽出する関数"""
+    print("--- OCR RAW TEXT (New Method) ---")
     print(text)
     sys.stdout.flush()
 
-    stats_data = {}
-    lines = text.split('\n')
+    found_stats_blocks = []
     
-    for player_name in selected_players:
-        # 各プレイヤー名がどの行にあるかを探す
-        for line in lines:
-            # プレイヤー名が含まれ、かつ "合計" ではない行を対象とする
-            if player_name in line and "合計" not in line:
-                # 行から数字と分数をすべて抽出
-                parts = re.findall(r'\d+/\d+|\d+', line)
-                
-                # スタッツの数（PTSからFTM/FTAまでで10個）が一致するか確認
-                if len(parts) >= 10:
-                    try:
-                        fgm_fga = parts[7].split('/')
-                        three_pm_pa = parts[8].split('/')
-                        ftm_fta = parts[9].split('/')
+    # 「グレード(A+) + 7つの数字 + 3つの分数」というパターンを探す
+    # 数字間のスペースは0個以上(\s*)を許容し、柔軟性を持たせる
+    pattern = re.compile(
+        r'[A-Z][+-]?\s*'
+        r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
+        r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
+    )
 
-                        stats_data[player_name] = {
-                            'pts': int(parts[0]), 'reb': int(parts[1]), 'ast': int(parts[2]),
-                            'stl': int(parts[3]), 'blk': int(parts[4]), 'foul': int(parts[5]),
-                            'turnover': int(parts[6]), 'fgm': int(fgm_fga[0]), 'fga': int(fgm_fga[1]),
-                            'three_pm': int(three_pm_pa[0]), 'three_pa': int(three_pm_pa[1]),
-                            'ftm': int(ftm_fta[0]), 'fta': int(ftm_fta[1])
-                        }
-                        # 一致するデータが見つかったら、次のプレイヤーを探す
-                        break
-                    except (ValueError, IndexError):
-                        continue
-                        
-    print(f"--- PARSED DATA ({len(stats_data)} players) ---")
-    print(stats_data)
+    print("--- FINDING STATS BLOCKS ---")
     sys.stdout.flush()
-    return stats_data# --- 5. ルート（ページの表示と処理） ---
+
+    # findall を使って、テキスト中にある全てのスタッツブロックを順番に取得
+    matches = pattern.findall(text)
+    
+    for match_group in matches:
+        print(f"FOUND BLOCK: {match_group}")
+        sys.stdout.flush()
+        try:
+            # FGM/FGAなどを分割
+            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[7], match_group[8], match_group[9]
+            fgm, fga = map(int, fgm_fga_str.split('/'))
+            three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
+            ftm, fta = map(int, ftm_fta_str.split('/'))
+
+            found_stats_blocks.append({
+                'pts': int(match_group[0]), 'reb': int(match_group[1]), 'ast': int(match_group[2]),
+                'stl': int(match_group[3]), 'blk': int(match_group[4]), 'foul': int(match_group[5]),
+                'turnover': int(match_group[6]), 'fgm': fgm, 'fga': fga,
+                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+            })
+        except (ValueError, IndexError) as e:
+            print(f"Failed to parse a block: {match_group}, Error: {e}")
+            sys.stdout.flush()
+            continue
+            
+    print(f"--- PARSED {len(found_stats_blocks)} STATS BLOCKS ---")
+    sys.stdout.flush()
+    
+    return found_stats_blocks# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('index'))
@@ -537,14 +544,9 @@ if __name__ == '__main__':
 def ocr_upload():
     if 'image' not in request.files:
         return jsonify({'error': '画像ファイルがありません'}), 400
-    
-    # ★★★ 選択されたプレイヤー名のリストをリクエストから受け取る ★★★
-    selected_players = request.form.getlist('selected_players[]')
-    if not selected_players:
-        return jsonify({'error': '先に出場選手を選択してください。'}), 400
-
     file = request.files['image']
-    # ... (ファイルチェックは変更なし) ...
+    if not (file and file.filename != '' and allowed_file(file.filename)):
+        return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
 
     try:
         client = vision.ImageAnnotatorClient()
@@ -556,12 +558,13 @@ def ocr_upload():
         
         full_text = response.text_annotations[0].description
         
-        # ★★★ 解析関数に、テキストと選択済みプレイヤーリストの両方を渡す ★★★
-        parsed_data = parse_nba2k_stats(full_text, selected_players)
+        # 解析関数はテキストだけを受け取る
+        parsed_data = parse_nba2k_stats(full_text)
         
         if not parsed_data:
-            return jsonify({'error': '選択されたプレイヤーのスタッツを画像から見つけられませんでした。'}), 500
+            return jsonify({'error': '画像から有効なスタッツの組み合わせを見つけられませんでした。'}), 500
 
+        # 解析結果のリストをそのまま返す
         return jsonify(parsed_data)
 
     except Exception as e:
