@@ -571,6 +571,11 @@ if __name__ == '__main__':
 def ocr_upload():
     if 'image' not in request.files:
         return jsonify({'error': '画像ファイルがありません'}), 400
+    
+    selected_players = request.form.getlist('selected_players[]')
+    if not selected_players:
+        return jsonify({'error': '先に出場選手を選択してください。'}), 400
+
     file = request.files['image']
     if not (file and file.filename != '' and allowed_file(file.filename)):
         return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
@@ -583,18 +588,17 @@ def ocr_upload():
         response = client.text_detection(image=image)
         if response.error.message: raise Exception(response.error.message)
         
-        # 最初の注釈（画像全体のテキスト）を取得
         full_text = ""
         if response.text_annotations:
             full_text = response.text_annotations[0].description
         
-        # 解析関数はテキストだけを受け取る
-        parsed_data = parse_nba2k_stats(full_text)
+        # ★★★ ここが修正箇所です ★★★
+        # 解析関数に、テキストと選択済みプレイヤーリストの両方を渡します
+        parsed_data = parse_nba2k_stats(full_text, selected_players)
         
         if not parsed_data:
-            return jsonify({'error': '画像から有効なスタッツの組み合わせを見つけられませんでした。'}), 500
+            return jsonify({'error': '選択されたプレイヤーのスタッツを画像から見つけられませんでした。'}), 500
 
-        # 解析結果のリストをそのまま返す
         return jsonify(parsed_data)
 
     except Exception as e:
