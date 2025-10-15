@@ -200,52 +200,52 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(text):
-    """テキストから、見つかった全ての「プレイヤー名らしきもの」と「スタッツ」のペアを抽出する"""
+    """テキストからスタッツの数値ブロックだけを順番に抽出する関数"""
     print("--- OCR RAW TEXT (Final Method) ---")
     print(text)
     sys.stdout.flush()
 
-    found_players = []
+    found_stats_blocks = []
     
-    # スタッツの「形」に一致するパターンを定義
+    # 「グレード(A+) + 7つの数字 + 3つの分数」というパターンを探す
+    # 数字間のスペースは0個以上(\s*)を許容し、柔軟性を持たせる
     pattern = re.compile(
-        r'([A-Z][+-]?)\s*'
+        r'[A-Z][+-]?\s*'
         r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
         r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
     )
 
-    for line in text.split('\n'):
-        match = pattern.search(line)
-        if match:
-            player_name_part = line[:match.start()].strip()
-            player_name = re.sub(r'^[+‣▸▶\s]+', '', player_name_part).strip()
-
-            if not player_name or len(player_name) < 2 or "合計" in player_name:
-                continue
-
-            try:
-                stats_groups = match.groups()
-                fgm, fga = map(int, stats_groups[8].split('/'))
-                three_pm, three_pa = map(int, stats_groups[9].split('/'))
-                ftm, fta = map(int, stats_groups[10].split('/'))
-
-                stats_dict = {
-                    'pts': int(stats_groups[1]), 'reb': int(stats_groups[2]), 'ast': int(stats_groups[3]),
-                    'stl': int(stats_groups[4]), 'blk': int(stats_groups[5]), 'foul': int(stats_groups[6]),
-                    'turnover': int(stats_groups[7]), 'fgm': fgm, 'fga': fga,
-                    'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
-                }
-                found_players.append({'name': player_name, 'stats': stats_dict})
-
-            except (ValueError, IndexError) as e:
-                print(f"Failed to parse stats for line: {line}, Error: {e}")
-                sys.stdout.flush()
-                continue
-    
-    print(f"--- PARSED DATA ({len(found_players)} players) ---")
-    print(found_players)
+    print("--- FINDING STATS BLOCKS ---")
     sys.stdout.flush()
-    return found_players# --- 5. ルート（ページの表示と処理） ---
+
+    # findall を使って、テキスト中にある全てのスタッツブロックを順番に取得
+    matches = pattern.findall(text)
+    
+    for match_group in matches:
+        print(f"FOUND BLOCK: {match_group}")
+        sys.stdout.flush()
+        try:
+            # FGM/FGAなどを分割
+            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[7], match_group[8], match_group[9]
+            fgm, fga = map(int, fgm_fga_str.split('/'))
+            three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
+            ftm, fta = map(int, ftm_fta_str.split('/'))
+
+            found_stats_blocks.append({
+                'pts': int(match_group[0]), 'reb': int(match_group[1]), 'ast': int(match_group[2]),
+                'stl': int(match_group[3]), 'blk': int(match_group[4]), 'foul': int(match_group[5]),
+                'turnover': int(match_group[6]), 'fgm': fgm, 'fga': fga,
+                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+            })
+        except (ValueError, IndexError) as e:
+            print(f"Failed to parse a block: {match_group}, Error: {e}")
+            sys.stdout.flush()
+            continue
+            
+    print(f"--- PARSED {len(found_stats_blocks)} STATS BLOCKS ---")
+    sys.stdout.flush()
+    
+    return found_stats_blocks# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('index'))
@@ -560,11 +560,13 @@ def ocr_upload():
         if response.text_annotations:
             full_text = response.text_annotations[0].description
         
+        # 解析関数はテキストだけを受け取る
         parsed_data = parse_nba2k_stats(full_text)
         
         if not parsed_data:
-            return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
+            return jsonify({'error': '画像から有効なスタッツの組み合わせを見つけられませんでした。'}), 500
 
+        # 解析結果のリストをそのまま返す
         return jsonify(parsed_data)
 
     except Exception as e:
