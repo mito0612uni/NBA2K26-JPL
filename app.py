@@ -199,80 +199,53 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(text, selected_players):
-    """テキストの中から、指定されたプレイヤーリストに一致するスタッツを探す（最終アンカー方式）"""
-    print("--- OCR RAW TEXT (Final, Anchor Method) ---")
+def parse_nba2k_stats(text):
+    """テキストから、見つかった全ての「プレイヤー名らしきもの」と「スタッツ」のペアを抽出する"""
+    print("--- OCR RAW TEXT (Final Method) ---")
     print(text)
     sys.stdout.flush()
 
-    stats_data = {}
+    found_players = []
     
-    # 行末の3つの分数形式をアンカーとして探す正規表現
-    anchor_pattern = re.compile(r'(\d+/\d+)\s+(\d+/\d+)\s+(\d+/\d+)$')
+    # スタッツの「形」に一致するパターンを定義
+    pattern = re.compile(
+        r'([A-Z][+-]?)\s*'
+        r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
+        r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
+    )
 
-    for player_name in selected_players:
-        found_player = False
-        for line in text.split('\n'):
-            # 選択されたプレイヤー名が含まれる行を探す
-            if player_name in line and "合計" not in line:
-                match = anchor_pattern.search(line)
-                
-                # アンカー（3つの分数）が見つからなければ、この行はスキップ
-                if not match:
-                    continue
+    for line in text.split('\n'):
+        match = pattern.search(line)
+        if match:
+            player_name_part = line[:match.start()].strip()
+            player_name = re.sub(r'^[+‣▸▶\s]+', '', player_name_part).strip()
 
-                # アンカーより前の部分を取得
-                before_anchor = line[:match.start()].strip()
-                
-                # 前の部分から、数字とグレード（A+など）をすべて抽出
-                parts = re.findall(r'[A-Z][+-]?|\d+', before_anchor)
-                
-                # 数字だけを抽出
-                numbers_only = [p for p in parts if p.isdigit()]
-                
-                # 数字が7個に満たない場合、結合された数字を分割する
-                final_numbers = []
-                for num_str in numbers_only:
-                    if len(num_str) > 1 and int(num_str) > 60: # PTS以外のスタッツで60以上はあり得ないと仮定
-                        final_numbers.extend(list(num_str)) # '0210' -> ['0', '2', '1', '0']
-                    else:
-                        final_numbers.append(num_str)
+            if not player_name or len(player_name) < 2 or "合計" in player_name:
+                continue
 
-                # 最終的に数字が7個以上あるか確認
-                if len(final_numbers) < 7:
-                    continue
+            try:
+                stats_groups = match.groups()
+                fgm, fga = map(int, stats_groups[8].split('/'))
+                three_pm, three_pa = map(int, stats_groups[9].split('/'))
+                ftm, fta = map(int, stats_groups[10].split('/'))
 
-                print(f"SUCCESSFULLY PARSED: Player='{player_name}'")
+                stats_dict = {
+                    'pts': int(stats_groups[1]), 'reb': int(stats_groups[2]), 'ast': int(stats_groups[3]),
+                    'stl': int(stats_groups[4]), 'blk': int(stats_groups[5]), 'foul': int(stats_groups[6]),
+                    'turnover': int(stats_groups[7]), 'fgm': fgm, 'fga': fga,
+                    'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+                }
+                found_players.append({'name': player_name, 'stats': stats_dict})
+
+            except (ValueError, IndexError) as e:
+                print(f"Failed to parse stats for line: {line}, Error: {e}")
                 sys.stdout.flush()
-
-                try:
-                    # 後ろから7個の数字をスタッツとして取得
-                    pts, reb, ast, stl, blk, foul, turnover = map(int, final_numbers[-7:])
-                    
-                    fgm_fga_str, three_pm_pa_str, ftm_fta_str = match.groups()
-                    fgm, fga = map(int, fgm_fga_str.split('/'))
-                    three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
-                    ftm, fta = map(int, ftm_fta_str.split('/'))
-
-                    stats_data[player_name] = {
-                        'pts': pts, 'reb': reb, 'ast': ast, 'stl': stl, 'blk': blk,
-                        'foul': foul, 'turnover': turnover, 'fgm': fgm, 'fga': fga,
-                        'three_pm': three_pm, 'three_pa': three_pa,
-                        'ftm': ftm, 'fta': fta
-                    }
-                    found_player = True
-                    break # このプレイヤーの処理は完了
-                except (ValueError, IndexError) as e:
-                    print(f"Failed to parse stats values for line: {line}, Error: {e}")
-                    sys.stdout.flush()
-                    continue
-        if found_player:
-            continue
-            
-    print(f"--- PARSED DATA ({len(stats_data)} players) ---")
-    print(stats_data)
+                continue
+    
+    print(f"--- PARSED DATA ({len(found_players)} players) ---")
+    print(found_players)
     sys.stdout.flush()
-    return stats_data# --- 5. ルート（ページの表示と処理） ---
+    return found_players# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('index'))
@@ -571,11 +544,6 @@ if __name__ == '__main__':
 def ocr_upload():
     if 'image' not in request.files:
         return jsonify({'error': '画像ファイルがありません'}), 400
-    
-    selected_players = request.form.getlist('selected_players[]')
-    if not selected_players:
-        return jsonify({'error': '先に出場選手を選択してください。'}), 400
-
     file = request.files['image']
     if not (file and file.filename != '' and allowed_file(file.filename)):
         return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
@@ -592,12 +560,10 @@ def ocr_upload():
         if response.text_annotations:
             full_text = response.text_annotations[0].description
         
-        # ★★★ ここが修正箇所です ★★★
-        # 解析関数に、テキストと選択済みプレイヤーリストの両方を渡します
-        parsed_data = parse_nba2k_stats(full_text, selected_players)
+        parsed_data = parse_nba2k_stats(full_text)
         
         if not parsed_data:
-            return jsonify({'error': '選択されたプレイヤーのスタッツを画像から見つけられませんでした。'}), 500
+            return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
 
         return jsonify(parsed_data)
 
