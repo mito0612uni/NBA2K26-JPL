@@ -1,7 +1,8 @@
 {% extends "layout.html" %}
+
 {% block content %}
 <style>
-  /* スタイルは変更なし */
+  /* このページ専用の簡単なスタイル */
   .bench { border: 1px solid #ddd; padding: 10px; margin-bottom: 15px; border-radius: 5px; }
   .bench-player { background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px 10px; border-radius: 15px; cursor: pointer; display: inline-block; margin: 5px; }
   .bench-player:hover { background-color: #e0e0e0; }
@@ -10,12 +11,106 @@
   #ocr-feedback { margin-top: 10px; font-weight: bold; }
 </style>
 
-<h2>結果入力...</h2>
-<p>...</p>
+<h2>
+  {% if current_user.is_authenticated %}結果入力{% else %}試合スタッツ{% endif %}: 
+  {{ game.home_team.name }} vs {{ game.away_team.name }}
+</h2>
+
+<p style="margin-bottom: 15px;">
+  チーム得点は自動計算されます。
+  {% if current_user.is_authenticated %}
+  OCRで自動入力するか、ベンチから5名選んでスタッツを手動入力してください。
+  {% else %}
+  これは閲覧専用です。結果を編集するには<a href="{{ url_for('login') }}">ログイン</a>してください。
+  {% endif %}
+</p>
+
 {% if current_user.is_authenticated and current_user.is_admin %}
+<div style="border: 2px dashed #007bff; padding: 15px; margin-bottom: 20px; border-radius: 5px;">
+  <h4>OCR自動入力 (試験機能)</h4>
+  <p>スクリーンショット画像をアップロードしてください。</p>
+  <input type="file" id="ocr-image-input" accept="image/*">
+  <button type="button" id="ocr-submit-btn">画像から読み込む</button>
+  <div id="ocr-feedback"></div>
+</div>
+
+<div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+    <h4>管理者アクション：不戦勝処理</h4>
+    <p>以下のボタンを押すと、スタッツを入力せずに不戦勝として即座に結果を記録します（スコアは0-0になります）。</p>
+    <div style="display: flex; gap: 20px;">
+        <form action="{{ url_for('forfeit_game', game_id=game.id) }}" method="post" onsubmit="return confirm('{{ game.home_team.name }} の不戦勝として記録しますか？');">
+            <input type="hidden" name="winning_team_id" value="{{ game.home_team.id }}">
+            <button type="submit" style="background-color: #28a745; color: white;">{{ game.home_team.name }} の不戦勝</button>
+        </form>
+        <form action="{{ url_for('forfeit_game', game_id=game.id) }}" method="post" onsubmit="return confirm('{{ game.away_team.name }} の不戦勝として記録しますか？');">
+            <input type="hidden" name="winning_team_id" value="{{ game.away_team.id }}">
+            <button type="submit" style="background-color: #28a745; color: white;">{{ game.away_team.name }} の不戦勝</button>
+        </form>
+    </div>
+</div>
 {% endif %}
+
 <form method="post">
-  </form>
+  {# --- ホームチーム --- #}
+  <div class="team-section">
+    <h3>{{ game.home_team.name }}</h3>
+    {% if current_user.is_authenticated %}
+    <div class="bench" id="bench-home">
+      <strong>ベンチ:</strong>
+      {% for player in game.home_team.players %}
+        <span class="bench-player" data-team-id="home" data-player-id="{{ player.id }}" data-player-name="{{ player.name }}">{{ player.name }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <table class="stats-table">
+      <thead id="stats-header-home"></thead>
+      <tbody id="stats-body-home"></tbody>
+    </table>
+    {% if current_user.is_authenticated %}
+    <button type="button" class="reset-btn" data-team-id="home">選択をリセット</button>
+    {% endif %}
+  </div>
+
+  <hr style="margin: 30px 0;">
+
+  {# --- アウェイチーム --- #}
+  <div class="team-section">
+    <h3>{{ game.away_team.name }}</h3>
+    {% if current_user.is_authenticated %}
+    <div class="bench" id="bench-away">
+      <strong>ベンチ:</strong>
+      {% for player in game.away_team.players %}
+        <span class="bench-player" data-team-id="away" data-player-id="{{ player.id }}" data-player-name="{{ player.name }}">{{ player.name }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <table class="stats-table">
+      <thead id="stats-header-away"></thead>
+      <tbody id="stats-body-away"></tbody>
+    </table>
+    {% if current_user.is_authenticated %}
+    <button type="button" class="reset-btn" data-team-id="away">選択をリセット</button>
+    {% endif %}
+  </div>
+
+  <hr style="margin: 30px 0;">
+
+  {% if current_user.is_authenticated %}
+  <div>
+    <h3>試合の動画リンク</h3>
+    <div style="margin-bottom: 10px;">
+      <label for="youtube_url_home">{{ game.home_team.name }}側 URL:</label>
+      <input type="url" id="youtube_url_home" name="youtube_url_home" value="{{ game.youtube_url_home or '' }}" placeholder="https://..." style="width: 100%; max-width: 500px; padding: 5px;">
+    </div>
+    <div>
+      <label for="youtube_url_away">{{ game.away_team.name }}側 URL:</label>
+      <input type="url" id="youtube_url_away" name="youtube_url_away" value="{{ game.youtube_url_away or '' }}" placeholder="https://..." style="width: 100%; max-width: 500px; padding: 5px;">
+    </div>
+  </div>
+  
+  <button type="submit" style="margin-top: 20px; padding: 10px 20px; font-size: 16px;">結果を保存</button>
+  {% endif %}
+</form>
 {% endblock %}
 
 
@@ -32,8 +127,6 @@ document.addEventListener('DOMContentLoaded', function() {
     return '<tr>' + statHeaders.map(h => `<th>${h}</th>`).join('') + '</tr>';
   }
 
-  // ★★★ ここからが修正点1 ★★★
-  // 作成されるテーブルの行に、プレイヤー名を直接保存するようにする
   function createPlayerRow(playerId, playerName, teamId) {
     const playerStats = existingStats[String(playerId)] || {};
     let rowHTML = `<td>${playerName}</td>`;
@@ -42,23 +135,69 @@ document.addEventListener('DOMContentLoaded', function() {
       const readonly = isUserAuthenticated ? '' : 'readonly';
       rowHTML += `<td><input type="number" name="player_${playerId}_${field}" value="${value}" min="0" ${readonly}></td>`;
     });
-    // data-player-name 属性を追加
     return `<tr data-player-id="${playerId}" data-player-name="${playerName}" data-team-id="${teamId}">${rowHTML}</tr>`;
   }
   
   function populateInitialStats() {
-    // (この関数の中身は変更なし)
+    const statsHeaderHome = document.getElementById('stats-header-home');
+    const statsBodyHome = document.getElementById('stats-body-home');
+    const statsHeaderAway = document.getElementById('stats-header-away');
+    const statsBodyAway = document.getElementById('stats-body-away');
+    let homeHasStats = false;
+    let awayHasStats = false;
+
+    for (const playerId in existingStats) {
+      const player = document.querySelector(`.bench-player[data-player-id='${playerId}']`);
+      if (player) {
+        const teamId = player.dataset.teamId;
+        const playerName = player.dataset.playerName;
+        if (teamId === 'home') {
+          statsBodyHome.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+          if (isUserAuthenticated) player.classList.add('selected'); 
+          homeHasStats = true;
+        } else if (teamId === 'away') {
+          statsBodyAway.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+          if (isUserAuthenticated) player.classList.add('selected');
+          awayHasStats = true;
+        }
+      }
+    }
+    
+    if (homeHasStats) statsHeaderHome.innerHTML = createHeaderRow();
+    if (awayHasStats) statsHeaderAway.innerHTML = createHeaderRow();
   }
 
   populateInitialStats();
 
   if (isUserAuthenticated) {
-    // --- 手動入力の処理 (変更なし) ---
+    // --- 手動入力の処理 ---
     document.querySelectorAll('.bench-player').forEach(playerSpan => {
-        // ...
+      playerSpan.addEventListener('click', function() {
+        if (this.classList.contains('selected')) return;
+        const teamId = this.dataset.teamId;
+        const statsBody = document.getElementById(`stats-body-${teamId}`);
+        if (statsBody.children.length >= 5) {
+          alert('選択できる選手は5人までです。');
+          return;
+        }
+        const statsHeader = document.getElementById(`stats-header-${teamId}`);
+        if (statsHeader.children.length === 0) statsHeader.innerHTML = createHeaderRow();
+        const playerId = this.dataset.playerId;
+        const playerName = this.dataset.playerName;
+        statsBody.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+        this.classList.add('selected');
+      });
     });
+
     document.querySelectorAll('.reset-btn').forEach(button => {
-        // ...
+      button.addEventListener('click', function() {
+        const teamId = this.dataset.teamId;
+        document.getElementById(`stats-header-${teamId}`).innerHTML = '';
+        document.getElementById(`stats-body-${teamId}`).innerHTML = '';
+        document.querySelectorAll(`#bench-${teamId} .bench-player`).forEach(span => {
+          span.classList.remove('selected');
+        });
+      });
     });
 
     // --- OCRボタンの処理 ---
@@ -67,10 +206,9 @@ document.addEventListener('DOMContentLoaded', function() {
         ocrBtn.addEventListener('click', function() {
             const imageInput = document.getElementById('ocr-image-input');
             const feedbackDiv = document.getElementById('ocr-feedback');
+            
             const formData = new FormData();
             
-            // ★★★ ここからが修正点2 ★★★
-            // 選択済みのテーブル行から直接プレイヤー名を取得するように修正
             const selectedPlayerRows = document.querySelectorAll('#stats-body-home tr, #stats-body-away tr');
             if (selectedPlayerRows.length === 0) {
                 feedbackDiv.textContent = 'エラー: 先に出場選手をベンチから選択してください。';
@@ -78,7 +216,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             selectedPlayerRows.forEach(row => {
-                // rowに保存された data-player-name を直接使う
                 formData.append('selected_players[]', row.dataset.playerName);
             });
             
@@ -98,7 +235,27 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(response => response.json())
             .then(data => {
-                // (これ以降のデータ反映ロジックは変更なし)
+                if (data.error) {
+                    feedbackDiv.textContent = `エラー: ${data.error}`;
+                    feedbackDiv.style.color = 'red';
+                    return;
+                }
+
+                let playersFound = 0;
+                for (const playerName in data) {
+                    const playerSpan = [...document.querySelectorAll('.bench-player')].find(span => span.dataset.playerName === playerName);
+                    if (playerSpan) {
+                        playersFound++;
+                        const stats = data[playerName];
+                        const playerId = playerSpan.dataset.playerId;
+                        for (const statName in stats) {
+                            const input = document.querySelector(`input[name='player_${playerId}_${statName}']`);
+                            if (input) { input.value = stats[statName]; }
+                        }
+                    }
+                }
+                feedbackDiv.textContent = `成功: ${playersFound}人の選手にスタッツを反映しました。`;
+                feedbackDiv.style.color = 'green';
             })
             .catch(error => {
                 feedbackDiv.textContent = `通信エラーが発生しました: ${error}`;
