@@ -119,14 +119,11 @@
 const existingStats = {{ stats | tojson }};
 
 document.addEventListener('DOMContentLoaded', function() {
-  const statHeaders = ['選手名', '得点', 'ｱｼｽﾄ', 'ﾘﾊﾞｳﾝﾄﾞ', 'ｽﾃｨｰﾙ', 'ﾌﾞﾛｯｸ', 'ﾌｧｳﾙ', 'TO', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA'];
-  const statFields = ['player_name', 'pts', 'ast', 'reb', 'stl', 'blk', 'foul', 'turnover', 'fgm', 'fga', 'three_pm', 'three_pa', 'ftm', 'fta'];
-  const isUserAuthenticated = {{ current_user.is_authenticated | tojson }};
+  // ... (statHeaders, statFields, isUserAuthenticated の定義は変更なし)
 
   function createHeaderRow() { /* ... */ }
   function createPlayerRow(playerId, playerName, teamId) { /* ... */ }
   function populateInitialStats() { /* ... */ }
-
   populateInitialStats();
 
   if (isUserAuthenticated) {
@@ -164,40 +161,38 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: formData
             })
             .then(response => response.json())
-            .then(statsList => { // サーバーからはスタッツのリストが返ってくる
-                if (statsList.error) {
-                    feedbackDiv.textContent = `エラー: ${statsList.error}`;
+            .then(foundPlayersList => { // サーバーからは名前とスタッツのペアのリストが返ってくる
+                if (foundPlayersList.error) {
+                    feedbackDiv.textContent = `エラー: ${foundPlayersList.error}`;
                     feedbackDiv.style.color = 'red';
                     return;
                 }
                 
-                if (statsList.length < selectedPlayerRows.length) {
-                    feedbackDiv.textContent = `警告: 選択した選手数(${selectedPlayerRows.length}人)より少ないスタッツ(${statsList.length}件)しか検出できませんでした。`;
-                    feedbackDiv.style.color = 'orange';
-                }
-
+                let playersMatched = 0;
+                
                 // ★★★ ここからが新しいロジック ★★★
-                // 選択した選手と、検出したスタッツを「順番に」割り当てる
-                selectedPlayerRows.forEach((row, index) => {
-                    const stats = statsList[index];
-                    if (!stats) return; // 検出したスタッツが足りない場合は終了
-
+                // ユーザーが選択した各選手についてループ
+                selectedPlayerRows.forEach(row => {
+                    const selectedPlayerName = row.dataset.playerName;
                     const playerId = row.dataset.playerId;
-                    for (const statName in stats) {
-                        const input = row.querySelector(`input[name='player_${playerId}_${statName}']`);
-                        if (input) {
-                            input.value = stats[statName];
+
+                    // OCRが検出したリストの中から、名前が一致（部分一致）するものを探す
+                    const foundData = foundPlayersList.find(p => p.name.includes(selectedPlayerName));
+                    
+                    if (foundData) {
+                        playersMatched++;
+                        const stats = foundData.stats;
+                        for (const statName in stats) {
+                            const input = row.querySelector(`input[name='player_${playerId}_${statName}']`);
+                            if (input) {
+                                input.value = stats[statName];
+                            }
                         }
                     }
                 });
 
-                if (statsList.length > 0) {
-                    feedbackDiv.textContent = `成功: ${Math.min(statsList.length, selectedPlayerRows.length)}人の選手にスタッツを反映しました。`;
-                    feedbackDiv.style.color = 'green';
-                } else {
-                    feedbackDiv.textContent = 'エラー: 画像から有効なスタッツを見つけられませんでした。';
-                    feedbackDiv.style.color = 'red';
-                }
+                feedbackDiv.textContent = `成功: ${playersMatched}人の選手にスタッツを反映しました。`;
+                feedbackDiv.style.color = 'green';
             })
             .catch(error => {
                 feedbackDiv.textContent = `通信エラーが発生しました: ${error}`;
