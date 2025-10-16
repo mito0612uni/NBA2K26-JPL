@@ -8,7 +8,7 @@ import re
 import io
 import json
 import sys
-import requests # ★★★ この行を追加しました ★★★
+import requests
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, case, or_
@@ -23,12 +23,11 @@ from itertools import combinations
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_very_secret_key_change_it'
-
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 cloudinary.config( 
     cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME'), 
-    api_key = os.environ.get('CLOUDINARY_API_KEY'), 
+    api_key = os.environ.get('CLOUDINary_API_KEY'), 
     api_secret = os.environ.get('CLOUDINARY_API_SECRET')
 )
 
@@ -198,7 +197,7 @@ def parse_nba2k_stats(ocr_text):
     print("--- OCR RAW TEXT (OCR.space) ---"); print(ocr_text); sys.stdout.flush()
     found_stats_blocks = []
     pattern = re.compile(
-        r'([A-Z][+-]?)\s*'
+        r'[A-Z][+-]?\s*'
         r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
         r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
     )
@@ -507,14 +506,23 @@ def ocr_upload():
     if not (file and allowed_file(file.filename)):
         return jsonify({'error': '許可されていないファイル形式です'}), 400
     try:
-        client = vision.ImageAnnotatorClient()
-        content = file.read()
-        image = vision.Image(content=content)
-        response = client.text_detection(image=image)
-        if response.error.message: raise Exception(response.error.message)
-        parsed_data = parse_nba2k_stats(response, selected_players)
+        api_key = os.environ.get('OCR_SPACE_API_KEY')
+        if not api_key:
+            raise Exception("OCR.spaceのAPIキーが設定されていません。")
+        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng'}
+        response = requests.post(
+            'https://api.ocr.space/parse/image',
+            files={file.filename: file.read()},
+            data=payload,
+        )
+        response.raise_for_status()
+        result = response.json()
+        if not result.get('ParsedResults'):
+            return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
+        full_text = result['ParsedResults'][0]['ParsedText']
+        parsed_data = parse_nba2k_stats(full_text)
         if not parsed_data:
-            return jsonify({'error': '選択されたプレイヤーのスタッツを画像から見つけられませんでした。'}), 500
+            return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
         return jsonify(parsed_data)
     except Exception as e:
         return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
