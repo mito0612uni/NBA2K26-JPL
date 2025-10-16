@@ -194,28 +194,68 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(ocr_text):
-    print("--- OCR RAW TEXT (OCR.space) ---"); print(ocr_text); sys.stdout.flush()
-    found_stats_blocks = []
-    pattern = re.compile(
-        r'[A-Z][+-]?\s*'
-        r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
-        r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
-    )
-    matches = pattern.findall(ocr_text)
-    for match_group in matches:
+    """OCR.spaceから返された列ごとのテキストを解析し、スタッツブロックのリストを再構築する"""
+    print("--- OCR RAW TEXT (Final Columnar Method) ---")
+    print(ocr_text)
+    sys.stdout.flush()
+
+    # テキストをスペースや改行で単語リストに分割
+    tokens = ocr_text.split()
+
+    # ヘッダーのキーワードと、それがスタッツ辞書のどのキーに対応するかを定義
+    header_map = {
+        'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 
+        'FOULS': 'foul', 'TO': 'turnover', 'FGM/FGA': 'fgm/fga', 
+        '3PM/3PA': '3pm/3pa', 'FTM/FTA': 'ftm/fta'
+    }
+    
+    # プレイヤーの人数を推定 (ここでは10人と仮定)
+    num_players = 10
+    # プレイヤーごとのスタッツを格納するリストを初期化
+    player_stats = [{} for _ in range(num_players)]
+
+    print("--- PARSING TOKENS BY COLUMN ---")
+    sys.stdout.flush()
+
+    for i, token in enumerate(tokens):
+        # ヘッダーキーワードが見つかったかチェック
+        if token in header_map:
+            key = header_map[token]
+            
+            # ヘッダーの直後からプレイヤー人数分のデータを取得
+            # リストの範囲を超えないようにスライス
+            stats_for_this_column = tokens[i + 1 : i + 1 + num_players]
+            
+            print(f"Found column '{token}', data: {stats_for_this_column}")
+            sys.stdout.flush()
+
+            for player_index in range(len(stats_for_this_column)):
+                player_stats[player_index][key] = stats_for_this_column[player_index]
+
+    # 収集したデータを最終的な形式に変換
+    final_stats_list = []
+    for p_stats in player_stats:
         try:
-            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[7], match_group[8], match_group[9]
-            fgm, fga = map(int, fgm_fga_str.split('/')); three_pm, three_pa = map(int, three_pm_pa_str.split('/')); ftm, fta = map(int, ftm_fta_str.split('/'))
-            found_stats_blocks.append({
-                'pts': int(match_group[0]), 'reb': int(match_group[1]), 'ast': int(match_group[2]),
-                'stl': int(match_group[3]), 'blk': int(match_group[4]), 'foul': int(match_group[5]),
-                'turnover': int(match_group[6]), 'fgm': fgm, 'fga': fga,
+            fgm, fga = map(int, p_stats['fgm/fga'].split('/'))
+            three_pm, three_pa = map(int, p_stats['3pm/3pa'].split('/'))
+            ftm, fta = map(int, p_stats['ftm/fta'].split('/'))
+
+            final_stats_list.append({
+                'pts': int(p_stats['pts']), 'reb': int(p_stats['reb']), 'ast': int(p_stats['ast']),
+                'stl': int(p_stats['stl']), 'blk': int(p_stats['blk']), 'foul': int(p_stats['foul']),
+                'turnover': int(p_stats['turnover']), 'fgm': fgm, 'fga': fga,
                 'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
             })
-        except (ValueError, IndexError) as e:
-            print(f"Failed to parse a block: {match_group}, Error: {e}"); sys.stdout.flush(); continue
-    print(f"--- PARSED {len(found_stats_blocks)} STATS BLOCKS ---"); sys.stdout.flush()
-    return found_stats_blocks
+        except (KeyError, ValueError, IndexError) as e:
+            # データが不完全な場合はスキップ
+            print(f"Skipping incomplete stat block. Error: {e}")
+            sys.stdout.flush()
+            continue
+
+    print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---")
+    print(final_stats_list)
+    sys.stdout.flush()
+    return final_stats_list
 
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
@@ -499,16 +539,15 @@ def stats_page():
 def ocr_upload():
     if 'image' not in request.files:
         return jsonify({'error': '画像ファイルがありません'}), 400
-    selected_players = request.form.getlist('selected_players[]')
-    if not selected_players:
-        return jsonify({'error': '先に出場選手を選択してください。'}), 400
     file = request.files['image']
-    if not (file and allowed_file(file.filename)):
-        return jsonify({'error': '許可されていないファイル形式です'}), 400
+    if not (file and file.filename != '' and allowed_file(file.filename)):
+        return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
+
     try:
         api_key = os.environ.get('OCR_SPACE_API_KEY')
         if not api_key:
             raise Exception("OCR.spaceのAPIキーが設定されていません。")
+
         payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng'}
         response = requests.post(
             'https://api.ocr.space/parse/image',
@@ -517,13 +556,18 @@ def ocr_upload():
         )
         response.raise_for_status()
         result = response.json()
+
         if not result.get('ParsedResults'):
             return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
+
         full_text = result['ParsedResults'][0]['ParsedText']
         parsed_data = parse_nba2k_stats(full_text)
+        
         if not parsed_data:
             return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
+
         return jsonify(parsed_data)
+
     except Exception as e:
         return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
 
