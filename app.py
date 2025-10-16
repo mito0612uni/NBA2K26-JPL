@@ -564,10 +564,10 @@ def ocr_upload():
 
         payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng'}
         response = requests.post(
-            'https://api.ocr.space/parse/image',
-            files={file.filename: file.read()},
-            data=payload,
-        )
+    'https://api.ocr.space/parse/image',
+    files={'file': file}, # fileオブジェクトを直接渡す
+    data=payload,
+)
         response.raise_for_status()
         result = response.json()
 
