@@ -194,7 +194,7 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(ocr_text):
-    """OCR.spaceから返された列ごとのテキストを解析し、スタッツブロックのリストを再構築する（合計行を無視）"""
+    """OCR.spaceから返されたテキストを解析し、スタッツブロックのリストを返す"""
     print("--- OCR RAW TEXT (Final, Skip-Total Method) ---")
     print(ocr_text)
     sys.stdout.flush()
@@ -222,16 +222,13 @@ def parse_nba2k_stats(ocr_text):
         try:
             start_index = tokens.index(header)
             
-            # ★★★ ここからが修正部分 ★★★
-            # 1-5番目(チーム1)と7-12番目(チーム2)のデータを取得し、合計(6番目)を無視する
+            # 1-5番目(チーム1)と7-11番目(チーム2)のデータを取得し、合計(6番目)を無視する
             team1_stats = tokens[start_index + 1 : start_index + 6]
             team2_stats = tokens[start_index + 7 : start_index + 12]
             stats_for_this_column = team1_stats + team2_stats
 
-            # 選手10人分のデータがなければスキップ
             if len(stats_for_this_column) != 10:
                 continue
-            # ★★★ ここまで ★★★
 
             print(f"Found column '{header}', data: {stats_for_this_column}")
             sys.stdout.flush()
@@ -268,13 +265,12 @@ def parse_nba2k_stats(ocr_text):
             continue
 
     # データが完全に収集されたプレイヤーのスタッツのみをフィルタリング
-    final_stats_list = [stats for stats in player_stats if len(stats) > 10] # 成功率などを含むため10以上
+    final_stats_list = [stats for stats in player_stats if len(stats) >= 12]
             
     print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---")
     print(final_stats_list)
     sys.stdout.flush()
     return final_stats_list
-
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -588,7 +584,6 @@ def ocr_upload():
 
     except Exception as e:
         return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
-
 # --- 6. データベース初期化コマンドと実行 ---
 @app.cli.command('init-db')
 def init_db_command():
