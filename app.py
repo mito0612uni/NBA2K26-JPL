@@ -17,7 +17,7 @@ from collections import defaultdict, deque
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from itertools import combinations
-from google.cloud import vision
+
 
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
@@ -199,52 +199,42 @@ def calculate_team_stats():
         team_stats_list.append(stats_dict)
     return team_stats_list
 
-def parse_nba2k_stats(text):
-    """テキストからスタッツの数値ブロックだけを順番に抽出する関数"""
-    print("--- OCR RAW TEXT (Final Method) ---")
-    print(text)
+def parse_nba2k_stats(ocr_text):
+    """OCR.spaceから返されたテキストを解析し、スタッツブロックのリストを返す"""
+    print("--- OCR RAW TEXT (OCR.space) ---")
+    print(ocr_text)
     sys.stdout.flush()
 
     found_stats_blocks = []
-    
-    # 「グレード(A+) + 7つの数字 + 3つの分数」というパターンを探す
-    # 数字間のスペースは0個以上(\s*)を許容し、柔軟性を持たせる
     pattern = re.compile(
-        r'[A-Z][+-]?\s*'
-        r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
-        r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
+        r'([A-Z][+-]?)\s+'
+        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+        r'(\d+/\d+)\s+(\d+/\d+)\s+(\d+/\d+)'
     )
 
-    print("--- FINDING STATS BLOCKS ---")
-    sys.stdout.flush()
-
     # findall を使って、テキスト中にある全てのスタッツブロックを順番に取得
-    matches = pattern.findall(text)
-    
+    matches = pattern.findall(ocr_text)
+
     for match_group in matches:
-        print(f"FOUND BLOCK: {match_group}")
-        sys.stdout.flush()
         try:
-            # FGM/FGAなどを分割
-            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[7], match_group[8], match_group[9]
+            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[8], match_group[9], match_group[10]
             fgm, fga = map(int, fgm_fga_str.split('/'))
             three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
             ftm, fta = map(int, ftm_fta_str.split('/'))
 
             found_stats_blocks.append({
-                'pts': int(match_group[0]), 'reb': int(match_group[1]), 'ast': int(match_group[2]),
-                'stl': int(match_group[3]), 'blk': int(match_group[4]), 'foul': int(match_group[5]),
-                'turnover': int(match_group[6]), 'fgm': fgm, 'fga': fga,
+                'pts': int(match_group[1]), 'reb': int(match_group[2]), 'ast': int(match_group[3]),
+                'stl': int(match_group[4]), 'blk': int(match_group[5]), 'foul': int(match_group[6]),
+                'turnover': int(match_group[7]), 'fgm': fgm, 'fga': fga,
                 'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
             })
         except (ValueError, IndexError) as e:
             print(f"Failed to parse a block: {match_group}, Error: {e}")
             sys.stdout.flush()
             continue
-            
+
     print(f"--- PARSED {len(found_stats_blocks)} STATS BLOCKS ---")
     sys.stdout.flush()
-    
     return found_stats_blocks# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -549,24 +539,29 @@ def ocr_upload():
         return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
 
     try:
-        client = vision.ImageAnnotatorClient()
-        content = file.read()
-        image = vision.Image(content=content)
-        
-        response = client.text_detection(image=image)
-        if response.error.message: raise Exception(response.error.message)
-        
-        full_text = ""
-        if response.text_annotations:
-            full_text = response.text_annotations[0].description
-        
-        # 解析関数はテキストだけを受け取る
-        parsed_data = parse_nba2k_stats(full_text)
-        
-        if not parsed_data:
-            return jsonify({'error': '画像から有効なスタッツの組み合わせを見つけられませんでした。'}), 500
+        api_key = os.environ.get('OCR_SPACE_API_KEY')
+        if not api_key:
+            raise Exception("OCR.spaceのAPIキーが設定されていません。")
 
-        # 解析結果のリストをそのまま返す
+        # OCR.space APIに画像を送信
+        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng'}
+        response = requests.post(
+            'https://api.ocr.space/parse/image',
+            files={file.filename: file.read()},
+            data=payload,
+        )
+        response.raise_for_status() # エラーがあればここで例外を発生させる
+        result = response.json()
+
+        if not result.get('ParsedResults'):
+            return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
+
+        full_text = result['ParsedResults'][0]['ParsedText']
+        parsed_data = parse_nba2k_stats(full_text)
+
+        if not parsed_data:
+            return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
+
         return jsonify(parsed_data)
 
     except Exception as e:
