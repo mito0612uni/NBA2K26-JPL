@@ -563,11 +563,16 @@ def ocr_upload():
             raise Exception("OCR.spaceのAPIキーが設定されていません。")
 
         payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng'}
+        
+        # ★★★ ここが修正箇所です ★★★
         response = requests.post(
-    'https://api.ocr.space/parse/image',
-    files={'file': file}, # fileオブジェクトを直接渡す
-    data=payload,
-)
+            'https://api.ocr.space/parse/image',
+            # fileオブジェクトに加えて、ファイル名とMIMEタイプをタプルで渡す
+            files={'file': (file.filename, file.stream, file.mimetype)},
+            data=payload,
+        )
+        # ★★★ ここまで ★★★
+
         response.raise_for_status()
         result = response.json()
 
