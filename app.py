@@ -194,64 +194,82 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(ocr_text):
-    """OCR.spaceから返された列ごとのテキストを解析し、スタッツブロックのリストを再構築する"""
-    print("--- OCR RAW TEXT (Final Columnar Method) ---")
+    """OCR.spaceから返された列ごとのテキストを解析し、スタッツブロックのリストを再構築する（合計行を無視）"""
+    print("--- OCR RAW TEXT (Final, Skip-Total Method) ---")
     print(ocr_text)
     sys.stdout.flush()
 
-    # テキストをスペースや改行で単語リストに分割
     tokens = ocr_text.split()
 
-    # ヘッダーのキーワードと、それがスタッツ辞書のどのキーに対応するかを定義
     header_map = {
-        'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 
-        'FOULS': 'foul', 'TO': 'turnover', 'FGM/FGA': 'fgm/fga', 
-        '3PM/3PA': '3pm/3pa', 'FTM/FTA': 'ftm/fta'
+        'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk',
+        'FOULS': 'foul', 'TO': 'turnover'
+    }
+    fraction_header_map = {
+        'FGM/FGA': ('fgm', 'fga'),
+        '3PM/3PA': ('three_pm', 'three_pa'),
+        'FTM/FTA': ('ftm', 'fta')
     }
     
-    # プレイヤーの人数を推定 (ここでは10人と仮定)
     num_players = 10
-    # プレイヤーごとのスタッツを格納するリストを初期化
     player_stats = [{} for _ in range(num_players)]
 
-    print("--- PARSING TOKENS BY COLUMN ---")
+    print("--- PARSING TOKENS BY COLUMN (SKIPPING TOTALS) ---")
     sys.stdout.flush()
 
-    for i, token in enumerate(tokens):
-        # ヘッダーキーワードが見つかったかチェック
-        if token in header_map:
-            key = header_map[token]
-            
-            # ヘッダーの直後からプレイヤー人数分のデータを取得
-            # リストの範囲を超えないようにスライス
-            stats_for_this_column = tokens[i + 1 : i + 1 + num_players]
-            
-            print(f"Found column '{token}', data: {stats_for_this_column}")
-            sys.stdout.flush()
-
-            for player_index in range(len(stats_for_this_column)):
-                player_stats[player_index][key] = stats_for_this_column[player_index]
-
-    # 収集したデータを最終的な形式に変換
-    final_stats_list = []
-    for p_stats in player_stats:
+    # 単独の数字で構成されるスタッツを処理
+    for header, key in header_map.items():
         try:
-            fgm, fga = map(int, p_stats['fgm/fga'].split('/'))
-            three_pm, three_pa = map(int, p_stats['3pm/3pa'].split('/'))
-            ftm, fta = map(int, p_stats['ftm/fta'].split('/'))
+            start_index = tokens.index(header)
+            
+            # ★★★ ここからが修正部分 ★★★
+            # 1-5番目(チーム1)と7-12番目(チーム2)のデータを取得し、合計(6番目)を無視する
+            team1_stats = tokens[start_index + 1 : start_index + 6]
+            team2_stats = tokens[start_index + 7 : start_index + 12]
+            stats_for_this_column = team1_stats + team2_stats
 
-            final_stats_list.append({
-                'pts': int(p_stats['pts']), 'reb': int(p_stats['reb']), 'ast': int(p_stats['ast']),
-                'stl': int(p_stats['stl']), 'blk': int(p_stats['blk']), 'foul': int(p_stats['foul']),
-                'turnover': int(p_stats['turnover']), 'fgm': fgm, 'fga': fga,
-                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
-            })
-        except (KeyError, ValueError, IndexError) as e:
-            # データが不完全な場合はスキップ
-            print(f"Skipping incomplete stat block. Error: {e}")
+            # 選手10人分のデータがなければスキップ
+            if len(stats_for_this_column) != 10:
+                continue
+            # ★★★ ここまで ★★★
+
+            print(f"Found column '{header}', data: {stats_for_this_column}")
             sys.stdout.flush()
+
+            for i in range(num_players):
+                # 'O'のような誤認識を0に変換
+                stat_value = stats_for_this_column[i] if stats_for_this_column[i].isdigit() else '0'
+                player_stats[i][key] = int(stat_value)
+
+        except (ValueError, IndexError):
             continue
 
+    # 分数形式のスタッツを処理 (同様に合計行を無視)
+    for header, (key1, key2) in fraction_header_map.items():
+        try:
+            start_index = tokens.index(header)
+
+            team1_stats = tokens[start_index + 1 : start_index + 6]
+            team2_stats = tokens[start_index + 7 : start_index + 12]
+            stats_for_this_column = team1_stats + team2_stats
+
+            if len(stats_for_this_column) != 10:
+                continue
+
+            print(f"Found column '{header}', data: {stats_for_this_column}")
+            sys.stdout.flush()
+
+            for i in range(num_players):
+                parts = stats_for_this_column[i].split('/')
+                if len(parts) == 2:
+                    player_stats[i][key1] = int(parts[0])
+                    player_stats[i][key2] = int(parts[1])
+        except (ValueError, IndexError):
+            continue
+
+    # データが完全に収集されたプレイヤーのスタッツのみをフィルタリング
+    final_stats_list = [stats for stats in player_stats if len(stats) > 10] # 成功率などを含むため10以上
+            
     print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---")
     print(final_stats_list)
     sys.stdout.flush()
