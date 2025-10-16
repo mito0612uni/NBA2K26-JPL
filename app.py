@@ -7,6 +7,8 @@ import cloudinary.api
 import re
 import io
 import json
+import sys
+import requests # ★★★ この行を追加しました ★★★
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, case, or_
@@ -18,25 +20,18 @@ from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from itertools import combinations
 
-
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_very_secret_key_change_it'
-# RenderのSecret Fileのパスを設定
-google_credentials_path = '/etc/secrets/google_credentials.json'
-if os.path.exists(google_credentials_path):
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = google_credentials_path
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-# Cloudinary設定
 cloudinary.config( 
     cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME'), 
     api_key = os.environ.get('CLOUDINARY_API_KEY'), 
     api_secret = os.environ.get('CLOUDINARY_API_SECRET')
 )
 
-# データベース設定
 database_url = os.environ.get('DATABASE_URL')
 if database_url:
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url.replace("postgres://", "postgresql://", 1)
@@ -200,42 +195,30 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(ocr_text):
-    """OCR.spaceから返されたテキストを解析し、スタッツブロックのリストを返す"""
-    print("--- OCR RAW TEXT (OCR.space) ---")
-    print(ocr_text)
-    sys.stdout.flush()
-
+    print("--- OCR RAW TEXT (OCR.space) ---"); print(ocr_text); sys.stdout.flush()
     found_stats_blocks = []
     pattern = re.compile(
-        r'([A-Z][+-]?)\s+'
-        r'(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+'
-        r'(\d+/\d+)\s+(\d+/\d+)\s+(\d+/\d+)'
+        r'([A-Z][+-]?)\s*'
+        r'(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*(\d+)\s*'
+        r'(\d+/\d+)\s*(\d+/\d+)\s*(\d+/\d+)'
     )
-
-    # findall を使って、テキスト中にある全てのスタッツブロックを順番に取得
     matches = pattern.findall(ocr_text)
-
     for match_group in matches:
         try:
-            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[8], match_group[9], match_group[10]
-            fgm, fga = map(int, fgm_fga_str.split('/'))
-            three_pm, three_pa = map(int, three_pm_pa_str.split('/'))
-            ftm, fta = map(int, ftm_fta_str.split('/'))
-
+            fgm_fga_str, three_pm_pa_str, ftm_fta_str = match_group[7], match_group[8], match_group[9]
+            fgm, fga = map(int, fgm_fga_str.split('/')); three_pm, three_pa = map(int, three_pm_pa_str.split('/')); ftm, fta = map(int, ftm_fta_str.split('/'))
             found_stats_blocks.append({
-                'pts': int(match_group[1]), 'reb': int(match_group[2]), 'ast': int(match_group[3]),
-                'stl': int(match_group[4]), 'blk': int(match_group[5]), 'foul': int(match_group[6]),
-                'turnover': int(match_group[7]), 'fgm': fgm, 'fga': fga,
+                'pts': int(match_group[0]), 'reb': int(match_group[1]), 'ast': int(match_group[2]),
+                'stl': int(match_group[3]), 'blk': int(match_group[4]), 'foul': int(match_group[5]),
+                'turnover': int(match_group[6]), 'fgm': fgm, 'fga': fga,
                 'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
             })
         except (ValueError, IndexError) as e:
-            print(f"Failed to parse a block: {match_group}, Error: {e}")
-            sys.stdout.flush()
-            continue
+            print(f"Failed to parse a block: {match_group}, Error: {e}"); sys.stdout.flush(); continue
+    print(f"--- PARSED {len(found_stats_blocks)} STATS BLOCKS ---"); sys.stdout.flush()
+    return found_stats_blocks
 
-    print(f"--- PARSED {len(found_stats_blocks)} STATS BLOCKS ---")
-    sys.stdout.flush()
-    return found_stats_blocks# --- 5. ルート（ページの表示と処理） ---
+# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('index'))
@@ -288,8 +271,7 @@ def roster():
                 file = request.files['logo_image']
                 if file and file.filename != '' and allowed_file(file.filename):
                     try:
-                        upload_result = cloudinary.uploader.upload(file)
-                        logo_url = upload_result.get('secure_url')
+                        upload_result = cloudinary.uploader.upload(file); logo_url = upload_result.get('secure_url')
                     except Exception as e:
                         flash(f"画像アップロードに失敗しました: {e}"); return redirect(url_for('roster'))
                 elif file.filename != '': flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
@@ -301,8 +283,7 @@ def roster():
                     for i in range(1, 11):
                         player_name = request.form.get(f'player_name_{i}')
                         if player_name:
-                            new_player = Player(name=player_name, team_id=new_team.id)
-                            db.session.add(new_player)
+                            new_player = Player(name=player_name, team_id=new_team.id); db.session.add(new_player)
                     db.session.commit()
                 else: flash(f'チーム「{team_name}」は既に存在します。')
             else: flash('チーム名とリーグを選択してください。')
@@ -327,9 +308,7 @@ def roster():
         elif action == 'edit_player':
             player_id = request.form.get('player_id', type=int); new_name = request.form.get('new_name')
             player = Player.query.get(player_id)
-            if player and new_name:
-                player.name = new_name; db.session.commit()
-                flash(f'選手名を「{new_name}」に変更しました。')
+            if player and new_name: player.name = new_name; db.session.commit(); flash(f'選手名を「{new_name}」に変更しました。')
         elif action == 'transfer_player':
             player_id = request.form.get('player_id', type=int); new_team_id = request.form.get('new_team_id', type=int)
             player = Player.query.get(player_id); new_team = Team.query.get(new_team_id)
@@ -345,8 +324,7 @@ def roster():
 def schedule():
     team_id = request.args.get('team_id', type=int)
     query = Game.query
-    if team_id:
-        query = query.filter(or_(Game.home_team_id == team_id, Game.away_team_id == team_id))
+    if team_id: query = query.filter(or_(Game.home_team_id == team_id, Game.away_team_id == team_id))
     games = query.order_by(Game.game_date.asc(), Game.start_time.asc()).all()
     all_teams = Team.query.order_by(Team.name).all()
     return render_template('schedule.html', games=games, all_teams=all_teams, selected_team_id=team_id)
@@ -383,8 +361,7 @@ def auto_schedule():
         all_rounds = []; rotating_teams = deque(teams[1:])
         for _ in range(num_rounds):
             round_matchups = []; round_matchups.append((teams[0], rotating_teams[-1]))
-            for i in range((num_teams // 2) - 1):
-                round_matchups.append((rotating_teams[i], rotating_teams[-(i + 2)]))
+            for i in range((num_teams // 2) - 1): round_matchups.append((rotating_teams[i], rotating_teams[-(i + 2)]))
             all_rounds.append(round_matchups); rotating_teams.rotate(1)
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
         selected_weekdays = [int(d) for d in weekdays]; times = [t.strip() for t in times_str.split(',')]
@@ -420,8 +397,7 @@ def delete_team(team_id):
         try:
             public_id = os.path.splitext(team_to_delete.logo_image.split('/')[-1])[0]
             cloudinary.uploader.destroy(public_id)
-        except Exception as e:
-            print(f"Cloudinary image deletion failed: {e}")
+        except Exception as e: print(f"Cloudinary image deletion failed: {e}")
     Player.query.filter_by(team_id=team_id).delete()
     games_to_delete = Game.query.filter(or_(Game.home_team_id==team_id, Game.away_team_id==team_id)).all()
     for game in games_to_delete:
@@ -518,6 +494,31 @@ def stats_page():
     ).join(Player, PlayerStat.player_id == Player.id).join(Team, Player.team_id == Team.id).group_by(Player.id, Team.name).all()
     return render_template('stats.html', team_stats=team_stats, individual_stats=individual_stats)
 
+@app.route('/ocr-upload', methods=['POST'])
+@login_required
+@admin_required
+def ocr_upload():
+    if 'image' not in request.files:
+        return jsonify({'error': '画像ファイルがありません'}), 400
+    selected_players = request.form.getlist('selected_players[]')
+    if not selected_players:
+        return jsonify({'error': '先に出場選手を選択してください。'}), 400
+    file = request.files['image']
+    if not (file and allowed_file(file.filename)):
+        return jsonify({'error': '許可されていないファイル形式です'}), 400
+    try:
+        client = vision.ImageAnnotatorClient()
+        content = file.read()
+        image = vision.Image(content=content)
+        response = client.text_detection(image=image)
+        if response.error.message: raise Exception(response.error.message)
+        parsed_data = parse_nba2k_stats(response, selected_players)
+        if not parsed_data:
+            return jsonify({'error': '選択されたプレイヤーのスタッツを画像から見つけられませんでした。'}), 500
+        return jsonify(parsed_data)
+    except Exception as e:
+        return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
+
 # --- 6. データベース初期化コマンドと実行 ---
 @app.cli.command('init-db')
 def init_db_command():
@@ -527,50 +528,3 @@ def init_db_command():
 
 if __name__ == '__main__':
     app.run(debug=True)
-
-@app.route('/ocr-upload', methods=['POST'])
-@login_required
-@admin_required
-def ocr_upload():
-    if 'image' not in request.files:
-        return jsonify({'error': '画像ファイルがありません'}), 400
-    file = request.files['image']
-    if not (file and file.filename != '' and allowed_file(file.filename)):
-        return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
-
-    try:
-        api_key = os.environ.get('OCR_SPACE_API_KEY')
-        if not api_key:
-            raise Exception("OCR.spaceのAPIキーが設定されていません。")
-
-        # OCR.space APIに画像を送信
-        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng'}
-        response = requests.post(
-            'https://api.ocr.space/parse/image',
-            files={file.filename: file.read()},
-            data=payload,
-        )
-        response.raise_for_status() # エラーがあればここで例外を発生させる
-        result = response.json()
-
-        if not result.get('ParsedResults'):
-            return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
-
-        full_text = result['ParsedResults'][0]['ParsedText']
-        parsed_data = parse_nba2k_stats(full_text)
-
-        if not parsed_data:
-            return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
-
-        return jsonify(parsed_data)
-
-    except Exception as e:
-        return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
-def get_stats_leaders():
-    leaders = {}
-    stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
-    for field_key, field_name in stat_fields.items():
-        avg_stat = func.avg(getattr(PlayerStat, field_key)).label('avg_value')
-        query_result = db.session.query(Player.name, avg_stat).join(PlayerStat, PlayerStat.player_id == Player.id).group_by(Player.id).order_by(db.desc('avg_value')).limit(5).all()
-        leaders[field_name] = query_result
-    return leaders
