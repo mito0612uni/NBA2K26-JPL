@@ -194,83 +194,84 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(ocr_text):
-    """OCR.spaceから返されたテキストを解析し、スタッツブロックのリストを返す"""
-    print("--- OCR RAW TEXT (Final, Skip-Total Method) ---")
+    """OCR.spaceから返された列ごとのテキストを解析し、名前とスタッツのペアのリストを返す"""
+    print("--- OCR RAW TEXT (Final, Definitive Method) ---")
     print(ocr_text)
     sys.stdout.flush()
 
     tokens = ocr_text.split()
-
+    
+    # ヘッダーのキーワードと、それがスタッツ辞書のどのキーに対応するかを定義
     header_map = {
-        'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk',
-        'FOULS': 'foul', 'TO': 'turnover'
-    }
-    fraction_header_map = {
-        'FGM/FGA': ('fgm', 'fga'),
-        '3PM/3PA': ('three_pm', 'three_pa'),
-        'FTM/FTA': ('ftm', 'fta')
+        'GRD': 'name', 'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 
+        'BLK': 'blk', 'FOULS': 'foul', 'TO': 'turnover',
+        'FGM/FGA': 'fgm/fga', '3PM/3PA': '3pm/3pa', 'FTM/FTA': 'ftm/fta'
     }
     
-    num_players = 10
-    player_stats = [{} for _ in range(num_players)]
+    # 各列のデータを格納する辞書
+    columns = {key: [] for key in header_map.values()}
 
-    print("--- PARSING TOKENS BY COLUMN (SKIPPING TOTALS) ---")
+    print("--- PARSING TOKENS BY COLUMN (DEFINITIVE) ---")
     sys.stdout.flush()
 
-    # 単独の数字で構成されるスタッツを処理
     for header, key in header_map.items():
         try:
-            start_index = tokens.index(header)
+            # テキスト全体からヘッダーの出現位置をすべて見つける
+            indices = [i for i, token in enumerate(tokens) if token == header]
+            if not indices: continue
+
+            # スタッツは通常、2つのチームブロックに分かれているため、最初の2つのヘッダーを対象とする
+            team1_header_index = indices[0]
+            team2_header_index = indices[1] if len(indices) > 1 else -1
+
+            # チーム1のデータを取得 (ヘッダーの直後から5つ)
+            team1_data = tokens[team1_header_index + 1 : team1_header_index + 6]
+            columns[key].extend(team1_data)
             
-            # 1-5番目(チーム1)と7-11番目(チーム2)のデータを取得し、合計(6番目)を無視する
-            team1_stats = tokens[start_index + 1 : start_index + 6]
-            team2_stats = tokens[start_index + 7 : start_index + 12]
-            stats_for_this_column = team1_stats + team2_stats
+            # チーム2のヘッダーが見つかれば、同様にデータを取得
+            if team2_header_index != -1:
+                team2_data = tokens[team2_header_index + 1 : team2_header_index + 6]
+                columns[key].extend(team2_data)
 
-            if len(stats_for_this_column) != 10:
-                continue
-
-            print(f"Found column '{header}', data: {stats_for_this_column}")
+            print(f"Found column '{header}', data: {columns[key]}")
             sys.stdout.flush()
-
-            for i in range(num_players):
-                # 'O'のような誤認識を0に変換
-                stat_value = stats_for_this_column[i] if stats_for_this_column[i].isdigit() else '0'
-                player_stats[i][key] = int(stat_value)
 
         except (ValueError, IndexError):
             continue
 
-    # 分数形式のスタッツを処理 (同様に合計行を無視)
-    for header, (key1, key2) in fraction_header_map.items():
+    # 収集した列データから、プレイヤーごとのスタッツを再構築
+    final_player_list = []
+    if not columns.get('name'):
+        return []
+
+    for i in range(len(columns['name'])):
+        player_name = columns['name'][i].replace('O', '') # プレイヤー名の先頭の'O'を削除
+        if len(player_name) < 3: continue # 短すぎる名前は無視
+
         try:
-            start_index = tokens.index(header)
+            fgm, fga = map(int, columns['fgm/fga'][i].split('/'))
+            three_pm, three_pa = map(int, columns['3pm/3pa'][i].split('/'))
+            ftm, fta = map(int, columns['ftm/fta'][i].split('/'))
 
-            team1_stats = tokens[start_index + 1 : start_index + 6]
-            team2_stats = tokens[start_index + 7 : start_index + 12]
-            stats_for_this_column = team1_stats + team2_stats
-
-            if len(stats_for_this_column) != 10:
-                continue
-
-            print(f"Found column '{header}', data: {stats_for_this_column}")
+            player_data = {
+                'name': player_name,
+                'stats': {
+                    'pts': int(columns['pts'][i]), 'reb': int(columns['reb'][i]), 'ast': int(columns['ast'][i]),
+                    'stl': int(columns['stl'][i]), 'blk': int(columns['blk'][i]), 'foul': int(columns['foul'][i]),
+                    'turnover': int(columns['to'][i]), 'fgm': fgm, 'fga': fga,
+                    'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+                }
+            }
+            final_player_list.append(player_data)
+        except (KeyError, ValueError, IndexError) as e:
+            print(f"Skipping player data due to parsing error for player {player_name}: {e}")
             sys.stdout.flush()
-
-            for i in range(num_players):
-                parts = stats_for_this_column[i].split('/')
-                if len(parts) == 2:
-                    player_stats[i][key1] = int(parts[0])
-                    player_stats[i][key2] = int(parts[1])
-        except (ValueError, IndexError):
             continue
 
-    # データが完全に収集されたプレイヤーのスタッツのみをフィルタリング
-    final_stats_list = [stats for stats in player_stats if len(stats) >= 12]
-            
-    print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---")
-    print(final_stats_list)
+    print(f"--- PARSED {len(final_player_list)} PLAYERS ---")
+    print(final_player_list)
     sys.stdout.flush()
-    return final_stats_list
+    return final_player_list
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -563,16 +564,11 @@ def ocr_upload():
             raise Exception("OCR.spaceのAPIキーが設定されていません。")
 
         payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng'}
-        
-        # ★★★ ここが修正箇所です ★★★
         response = requests.post(
             'https://api.ocr.space/parse/image',
-            # fileオブジェクトに加えて、ファイル名とMIMEタイプをタプルで渡す
             files={'file': (file.filename, file.stream, file.mimetype)},
             data=payload,
         )
-        # ★★★ ここまで ★★★
-
         response.raise_for_status()
         result = response.json()
 
