@@ -169,6 +169,25 @@ def parse_nba2k_stats(ocr_text):
 # --- 5. ルート（ページの表示と処理） ---
 # ... (calculate_standings, get_stats_leaders, calculate_team_stats, login, logout, register, index, roster, schedule, add_schedule, auto_schedule, delete_team, delete_player, delete_game, forfeit_game, edit_game, stats_page などの関数は変更なし) ...
 
+@app.route('/')
+def index():
+    overall_standings = calculate_standings()
+    league_a_standings = calculate_standings(league_filter="Aリーグ")
+    league_b_standings = calculate_standings(league_filter="Bリーグ")
+    stats_leaders = get_stats_leaders()
+    upcoming_games = Game.query.filter_by(is_finished=False).order_by(Game.game_date.asc(), Game.start_time.asc()).all()
+    
+    # ロゴ表示のために全チーム情報を渡す
+    teams_data = Team.query.all()
+    
+    return render_template('index.html', 
+                           overall_standings=overall_standings,
+                           league_a_standings=league_a_standings,
+                           league_b_standings=league_b_standings,
+                           leaders=stats_leaders, 
+                           upcoming_games=upcoming_games,
+                           teams_data=teams_data)
+
 @app.route('/ocr-upload', methods=['POST'])
 @login_required
 @admin_required
