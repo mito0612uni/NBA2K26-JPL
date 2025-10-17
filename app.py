@@ -201,43 +201,42 @@ def parse_nba2k_stats(ocr_text):
 
     tokens = ocr_text.split()
     
-    # ヘッダーのキーワードと、それがスタッツ辞書のどのキーに対応するかを定義
     header_map = {
         'GRD': 'name', 'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 
         'BLK': 'blk', 'FOULS': 'foul', 'TO': 'turnover',
         'FGM/FGA': 'fgm/fga', '3PM/3PA': '3pm/3pa', 'FTM/FTA': 'ftm/fta'
     }
     
-    # 各列のデータを格納する辞書
     columns = {key: [] for key in header_map.values()}
+    all_headers = list(header_map.keys())
 
     print("--- PARSING TOKENS BY COLUMN (DEFINITIVE) ---")
     sys.stdout.flush()
 
+    # ヘッダーの位置を特定
+    header_indices = {h: [i for i, t in enumerate(tokens) if t == h] for h in all_headers}
+
     for header, key in header_map.items():
-        try:
-            # テキスト全体からヘッダーの出現位置をすべて見つける
-            indices = [i for i, token in enumerate(tokens) if token == header]
-            if not indices: continue
+        indices = header_indices.get(header)
+        if not indices: continue
 
-            # スタッツは通常、2つのチームブロックに分かれているため、最初の2つのヘッダーを対象とする
-            team1_header_index = indices[0]
-            team2_header_index = indices[1] if len(indices) > 1 else -1
-
-            # チーム1のデータを取得 (ヘッダーの直後から5つ)
-            team1_data = tokens[team1_header_index + 1 : team1_header_index + 6]
-            columns[key].extend(team1_data)
+        # 各ヘッダー（例：PTSが2回出現）ごとに処理
+        for header_index in indices:
+            # 次のヘッダーの位置を見つける
+            next_header_pos = len(tokens)
+            for h_key in all_headers:
+                for idx in header_indices.get(h_key, []):
+                    if idx > header_index and idx < next_header_pos:
+                        next_header_pos = idx
             
-            # チーム2のヘッダーが見つかれば、同様にデータを取得
-            if team2_header_index != -1:
-                team2_data = tokens[team2_header_index + 1 : team2_header_index + 6]
-                columns[key].extend(team2_data)
-
-            print(f"Found column '{header}', data: {columns[key]}")
-            sys.stdout.flush()
-
-        except (ValueError, IndexError):
-            continue
+            # ヘッダーと次のヘッダーの間にある単語を抽出
+            column_data = tokens[header_index + 1 : next_header_pos]
+            
+            # チーム名や合計行を除外するため、5つの要素からなるブロックのみを対象とする
+            if len(column_data) == 5:
+                columns[key].extend(column_data)
+                print(f"Found column '{header}', data: {column_data}")
+                sys.stdout.flush()
 
     # 収集した列データから、プレイヤーごとのスタッツを再構築
     final_player_list = []
@@ -249,7 +248,7 @@ def parse_nba2k_stats(ocr_text):
         if len(player_name) < 3: continue # 短すぎる名前は無視
 
         try:
-            fgm, fga = map(int, columns['fgm/fga'][i].split('/'))
+            fgm, fga = map(int, columns['fgm/fга'][i].split('/'))
             three_pm, three_pa = map(int, columns['3pm/3pa'][i].split('/'))
             ftm, fta = map(int, columns['ftm/fta'][i].split('/'))
 
