@@ -19,6 +19,7 @@ from collections import defaultdict, deque
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from itertools import combinations
+from PIL import Image, ImageEnhance # ★★★ 画像処理ライブラリを追加 ★★★
 
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
@@ -194,77 +195,50 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(ocr_text):
-    """OCR.spaceから返されたテキストを解析し、スタッツブロックのリストを返す（最終版）"""
-    print("--- OCR RAW TEXT (Final, Definitive Method) ---")
+    """OCR.spaceから返された列ごとのテキストを解析し、スタッツブロックのリストを再構築する"""
+    # (この関数の中身は、前回成功していた「合計行を無視する」ロジックのままなので変更なし)
+    print("--- OCR RAW TEXT (Final, Skip-Total Method) ---")
     print(ocr_text)
     sys.stdout.flush()
-
     tokens = ocr_text.split()
-    
     header_map = {
-        'GRD': 'name', 'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 
-        'BLK': 'blk', 'FOULS': 'foul', 'TO': 'turnover',
-        'FGM/FGA': 'fgm/fga', '3PM/3PA': '3pm/3pa', 'FTM/FTA': 'ftm/fta'
+        'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk',
+        'FOULS': 'foul', 'TO': 'turnover'
     }
-    
-    columns = {key: [] for key in header_map.values()}
-    
-    print("--- PARSING TOKENS BY COLUMN (DEFINITIVE) ---")
-    sys.stdout.flush()
-
+    fraction_header_map = {
+        'FGM/FGA': ('fgm', 'fga'), '3PM/3PA': ('three_pm', 'three_pa'), 'FTM/FTA': ('ftm', 'fta')
+    }
+    num_players = 10
+    player_stats = [{} for _ in range(num_players)]
+    print("--- PARSING TOKENS BY COLUMN (SKIPPING TOTALS) ---"); sys.stdout.flush()
     for header, key in header_map.items():
-        # テキスト全体からヘッダーの出現位置をすべて見つける
-        indices = [i for i, token in enumerate(tokens) if token == header]
-        
-        # 各ヘッダー（例：PTSが2回出現）ごとに処理
-        for header_index in indices:
-            # ヘッダーの直後から5つの単語をデータ候補として取得
-            # リストの範囲を超えないようにスライス
-            if header_index + 6 <= len(tokens):
-                column_data = tokens[header_index + 1 : header_index + 6]
-                columns[key].extend(column_data)
-        
-        # 取得したデータもログに出力
-        if columns[key]:
-            print(f"Found column '{header}', raw data blocks: {columns[key]}")
-            sys.stdout.flush()
-
-    # 収集した列データから、プレイヤーごとのスタッツを再構築
-    final_player_list = []
-    # 正常に10人分のデータが取れた列があるか確認
-    if not all(len(col_data) >= 10 for col_data in columns.values()):
-        print("--- PARSING FAILED: Incomplete columns ---")
-        sys.stdout.flush()
-        return []
-
-    for i in range(10): # 10人分のデータを作成
         try:
-            player_name = columns['name'][i].replace('O', '')
-            if len(player_name) < 3: continue
-
-            fgm, fga = map(int, columns['fgm/fga'][i].split('/'))
-            three_pm, three_pa = map(int, columns['3pm/3pa'][i].split('/'))
-            ftm, fta = map(int, columns['ftm/fta'][i].split('/'))
-
-            player_data = {
-                'name': player_name,
-                'stats': {
-                    'pts': int(columns['pts'][i]), 'reb': int(columns['reb'][i]), 'ast': int(columns['ast'][i]),
-                    'stl': int(columns['stl'][i]), 'blk': int(columns['blk'][i]), 'foul': int(columns['foul'][i]),
-                    'turnover': int(columns['to'][i]), 'fgm': fgm, 'fga': fga,
-                    'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
-                }
-            }
-            final_player_list.append(player_data)
-        except (KeyError, ValueError, IndexError) as e:
-            print(f"Skipping player data at index {i} due to parsing error: {e}")
-            sys.stdout.flush()
-            continue
-
-    print(f"--- PARSED {len(final_player_list)} PLAYERS ---")
-    print(final_player_list)
-    sys.stdout.flush()
-    return final_player_list# --- 5. ルート（ページの表示と処理） ---
+            start_index = tokens.index(header)
+            team1_stats = tokens[start_index + 1 : start_index + 6]
+            team2_stats = tokens[start_index + 7 : start_index + 12]
+            stats_for_this_column = team1_stats + team2_stats
+            if len(stats_for_this_column) != 10: continue
+            print(f"Found column '{header}', data: {stats_for_this_column}"); sys.stdout.flush()
+            for i in range(num_players):
+                stat_value = stats_for_this_column[i] if stats_for_this_column[i].isdigit() else '0'
+                player_stats[i][key] = int(stat_value)
+        except (ValueError, IndexError): continue
+    for header, (key1, key2) in fraction_header_map.items():
+        try:
+            start_index = tokens.index(header)
+            team1_stats = tokens[start_index + 1 : start_index + 6]
+            team2_stats = tokens[start_index + 7 : start_index + 12]
+            stats_for_this_column = team1_stats + team2_stats
+            if len(stats_for_this_column) != 10: continue
+            print(f"Found column '{header}', data: {stats_for_this_column}"); sys.stdout.flush()
+            for i in range(num_players):
+                parts = stats_for_this_column[i].split('/')
+                if len(parts) == 2:
+                    player_stats[i][key1] = int(parts[0]); player_stats[i][key2] = int(parts[1])
+        except (ValueError, IndexError): continue
+    final_stats_list = [stats for stats in player_stats if len(stats) >= 12]
+    print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---"); print(final_stats_list); sys.stdout.flush()
+    return final_stats_list# --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('index'))
@@ -555,10 +529,15 @@ def ocr_upload():
         if not api_key:
             raise Exception("OCR.spaceのAPIキーが設定されていません。")
 
-        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng'}
+        # ★★★ 画像の前処理を実行 ★★★
+        processed_image = preprocess_image(file.stream)
+        
+        # ★★★ OCR Engine 2 を指定 ★★★
+        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng', 'OcrEngine': 2}
+        
         response = requests.post(
             'https://api.ocr.space/parse/image',
-            files={'file': (file.filename, file.stream, file.mimetype)},
+            files={'file': ('image.png', processed_image, 'image/png')},
             data=payload,
         )
         response.raise_for_status()
