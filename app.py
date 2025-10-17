@@ -194,7 +194,7 @@ def calculate_team_stats():
     return team_stats_list
 
 def parse_nba2k_stats(ocr_text):
-    """OCR.spaceから返された列ごとのテキストを解析し、名前とスタッツのペアのリストを返す"""
+    """OCR.spaceから返された列ごとのテキストを解析し、スタッツブロックのリストを再構築する（最終版）"""
     print("--- OCR RAW TEXT (Final, Definitive Method) ---")
     print(ocr_text)
     sys.stdout.flush()
@@ -202,75 +202,82 @@ def parse_nba2k_stats(ocr_text):
     tokens = ocr_text.split()
     
     header_map = {
-        'GRD': 'name', 'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 
-        'BLK': 'blk', 'FOULS': 'foul', 'TO': 'turnover',
+        'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk',
+        'FOULS': 'foul', 'TO': 'turnover',
         'FGM/FGA': 'fgm/fga', '3PM/3PA': '3pm/3pa', 'FTM/FTA': 'ftm/fta'
     }
     
-    columns = {key: [] for key in header_map.values()}
+    columns = {}
     all_headers = list(header_map.keys())
 
     print("--- PARSING TOKENS BY COLUMN (DEFINITIVE) ---")
     sys.stdout.flush()
 
-    # ヘッダーの位置を特定
+    # 1. ヘッダーの位置をすべて特定
     header_indices = {h: [i for i, t in enumerate(tokens) if t == h] for h in all_headers}
 
     for header, key in header_map.items():
         indices = header_indices.get(header)
         if not indices: continue
 
-        # 各ヘッダー（例：PTSが2回出現）ごとに処理
+        # 2. 各ヘッダー（例：PTSが2回出現）ごとに処理
+        temp_col_data = []
         for header_index in indices:
-            # 次のヘッダーの位置を見つける
+            # 3. 次のヘッダーの位置を見つけて、その間の「汚れたデータ」を抜き出す
             next_header_pos = len(tokens)
             for h_key in all_headers:
                 for idx in header_indices.get(h_key, []):
                     if idx > header_index and idx < next_header_pos:
                         next_header_pos = idx
             
-            # ヘッダーと次のヘッダーの間にある単語を抽出
-            column_data = tokens[header_index + 1 : next_header_pos]
+            raw_column_data = tokens[header_index + 1 : next_header_pos]
             
-            # チーム名や合計行を除外するため、5つの要素からなるブロックのみを対象とする
-            if len(column_data) == 5:
-                columns[key].extend(column_data)
-                print(f"Found column '{header}', data: {column_data}")
-                sys.stdout.flush()
+            # 4. 「汚れたデータ」を掃除する
+            if key in ['fgm/fga', '3pm/3pa', 'ftm/fta']:
+                cleaned_data = [t for t in raw_column_data if re.match(r'^\d+/\d+$', t)]
+            else:
+                cleaned_data = [t for t in raw_column_data if t.isdigit()]
+            
+            temp_col_data.extend(cleaned_data)
+        
+        # 5. 掃除後のデータから、合計行を除外する
+        if len(temp_col_data) >= 11:
+            # 1-5番目 と 7-11番目 を結合 (6番目=合計 をスキップ)
+            # OCRの認識順がチームごとでない場合も考慮し、12個以上ある場合にも対応
+            team1_data = temp_col_data[0:5]
+            team2_data = []
+            if len(temp_col_data) >= 11:
+                 team2_data = temp_col_data[6:11]
+            
+            columns[key] = team1_data + team2_data
+            print(f"Found and Cleaned column '{header}', data: {columns[key]}")
+            sys.stdout.flush()
 
-    # 収集した列データから、プレイヤーごとのスタッツを再構築
-    final_player_list = []
-    if not columns.get('name'):
-        return []
+    # 6. 収集した列データから、プレイヤーごとのスタッツを再構築
+    final_stats_list = []
+    num_players = min(len(v) for v in columns.values()) if columns else 0
 
-    for i in range(len(columns['name'])):
-        player_name = columns['name'][i].replace('O', '') # プレイヤー名の先頭の'O'を削除
-        if len(player_name) < 3: continue # 短すぎる名前は無視
-
+    for i in range(num_players):
         try:
-            fgm, fga = map(int, columns['fgm/fга'][i].split('/'))
+            fgm, fga = map(int, columns['fgm/fga'][i].split('/'))
             three_pm, three_pa = map(int, columns['3pm/3pa'][i].split('/'))
             ftm, fta = map(int, columns['ftm/fta'][i].split('/'))
 
-            player_data = {
-                'name': player_name,
-                'stats': {
-                    'pts': int(columns['pts'][i]), 'reb': int(columns['reb'][i]), 'ast': int(columns['ast'][i]),
-                    'stl': int(columns['stl'][i]), 'blk': int(columns['blk'][i]), 'foul': int(columns['foul'][i]),
-                    'turnover': int(columns['to'][i]), 'fgm': fgm, 'fga': fga,
-                    'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
-                }
-            }
-            final_player_list.append(player_data)
+            final_stats_list.append({
+                'pts': int(columns['pts'][i]), 'reb': int(columns['reb'][i]), 'ast': int(columns['ast'][i]),
+                'stl': int(columns['stl'][i]), 'blk': int(columns['blk'][i]), 'foul': int(columns['foul'][i]),
+                'turnover': int(columns['to'][i]), 'fgm': fgm, 'fga': fga,
+                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+            })
         except (KeyError, ValueError, IndexError) as e:
-            print(f"Skipping player data due to parsing error for player {player_name}: {e}")
+            print(f"Skipping player data due to parsing error: {e}")
             sys.stdout.flush()
             continue
 
-    print(f"--- PARSED {len(final_player_list)} PLAYERS ---")
-    print(final_player_list)
+    print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---")
+    print(final_stats_list)
     sys.stdout.flush()
-    return final_player_list
+    return final_stats_list
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
