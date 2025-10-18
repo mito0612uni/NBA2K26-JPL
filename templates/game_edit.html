@@ -200,13 +200,13 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
 
-    // --- OCRボタンの処理 ---
+// ★★★ OCRボタンの処理を刷新 ★★★
     const ocrBtn = document.getElementById('ocr-submit-btn');
     if (ocrBtn) {
         ocrBtn.addEventListener('click', function() {
             const imageInput = document.getElementById('ocr-image-input');
             const feedbackDiv = document.getElementById('ocr-feedback');
-            
+
             const selectedPlayerRows = document.querySelectorAll('#stats-body-home tr, #stats-body-away tr');
             if (selectedPlayerRows.length === 0) {
                 feedbackDiv.textContent = 'エラー: 先に出場選手をベンチから選択してください。';
@@ -231,7 +231,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: formData
             })
             .then(response => response.json())
-            .then(statsList => {
+            .then(statsList => { // サーバーからはスタッツのリストが返ってくる
                 if (statsList.error) {
                     feedbackDiv.textContent = `エラー: ${statsList.error}`;
                     feedbackDiv.style.color = 'red';
@@ -243,9 +243,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     feedbackDiv.style.color = 'orange';
                 }
 
+                // 選択した選手と、検出したスタッツを順番に割り当て
                 selectedPlayerRows.forEach((row, index) => {
                     const stats = statsList[index];
-                    if (!stats) return;
+                    if (!stats) return; // 検出したスタッツが足りない場合は終了
 
                     const playerId = row.dataset.playerId;
                     for (const statName in stats) {
@@ -270,7 +271,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }
-  }
 });
 </script>
 {% endblock %}

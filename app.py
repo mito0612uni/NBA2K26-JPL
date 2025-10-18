@@ -137,136 +137,87 @@ def preprocess_image(image_stream):
     img_byte_arr.seek(0)
     return img_byte_arr
 
-def parse_nba2k_stats(ocr_result):
-    """OCR.spaceのテーブル解析結果からスタッツを抽出する関数"""
-    print("--- OCR PARSED RESULT (TABLE METHOD) ---")
-    print(ocr_result)
+def parse_nba2k_stats(ocr_text):
+    """OCR.spaceから返された列ごとのテキストを解析し、スタッツブロックのリストを返す"""
+    print("--- OCR RAW TEXT (Final, Columnar Method) ---")
+    print(ocr_text)
     sys.stdout.flush()
 
-    found_stats_blocks = []
+    tokens = ocr_text.split()
     
-    # OCR.spaceが返すテーブルのテキストブロックを解析
-    parsed_text = ocr_result.get('ParsedText', '')
-    lines = parsed_text.split('\r\n')
+    header_map = {
+        'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk',
+        'FOULS': 'foul', 'TO': 'turnover'
+    }
+    fraction_header_map = {
+        'FGM/FGA': ('fgm', 'fga'), '3PM/3PA': ('three_pm', 'three_pa'), 'FTM/FTA': ('ftm', 'fta')
+    }
     
-    for line in lines:
-        parts = line.split('\t') # タブで区切られた列データ
-        if len(parts) < 12: # プレイヤー名 + グレード + 10スタッツ
-            continue
+    num_players = 10
+    player_stats = [{} for _ in range(num_players)]
 
+    print("--- PARSING TOKENS BY COLUMN (DEFINITIVE) ---")
+    sys.stdout.flush()
+
+    # 単独の数字で構成されるスタッツを処理
+    for header, key in header_map.items():
         try:
-            # 最初の数個の要素を結合してプレイヤー名とする（名前にスペースがあっても対応）
-            # ここでは、グレード(B+など)の前の要素を全てプレイヤー名と仮定
-            grade_index = -1
-            for i, part in enumerate(parts):
-                if re.match(r'^[A-Z][+-]?$', part):
-                    grade_index = i
-                    break
-            if grade_index == -1: continue
-
-            player_name = "".join(parts[:grade_index]).strip()
-            if not player_name or "合計" in player_name: continue
+            indices = [i for i, token in enumerate(tokens) if token == header]
+            if not indices: continue
             
-            # スタッツ部分を抽出
-            stats_parts = parts[grade_index + 1:]
-            if len(stats_parts) < 10: continue
-
-            fgm_fga = stats_parts[7].split('/'); three_pm_pa = stats_parts[8].split('/'); ftm_fta = stats_parts[9].split('/')
+            # 各ヘッダーの出現位置からデータを収集
+            temp_data = []
+            for start_index in indices:
+                # ヘッダーの直後から5つの「数字に見えるもの」を探す
+                count = 0
+                i = start_index + 1
+                while count < 5 and i < len(tokens):
+                    if tokens[i].isdigit():
+                        temp_data.append(tokens[i])
+                        count += 1
+                    i += 1
             
-            stats_block = {
-                'pts': int(stats_parts[0]), 'reb': int(stats_parts[1]), 'ast': int(stats_parts[2]),
-                'stl': int(stats_parts[3]), 'blk': int(stats_parts[4]), 'foul': int(stats_parts[5]),
-                'turnover': int(stats_parts[6]), 'fgm': int(fgm_fga[0]), 'fga': int(fgm_fga[1]),
-                'three_pm': int(three_pm_pa[0]), 'three_pa': int(three_pm_pa[1]),
-                'ftm': int(ftm_fta[0]), 'fta': int(ftm_fta[1])
-            }
-            # プレイヤー名とスタッツのペアを追加
-            found_stats_blocks.append({'name': player_name, 'stats': stats_block})
-
-        except (ValueError, IndexError) as e:
-            print(f"Skipping line due to parsing error: {line}, Error: {e}")
-            sys.stdout.flush()
+            if len(temp_data) >= num_players:
+                print(f"Found column '{header}', data: {temp_data[:num_players]}")
+                sys.stdout.flush()
+                for i in range(num_players):
+                    player_stats[i][key] = int(temp_data[i])
+        except (ValueError, IndexError):
             continue
 
-    print(f"--- PARSED {len(found_stats_blocks)} PLAYERS ---")
-    print(found_stats_blocks)
+    # 分数形式のスタッツを処理
+    for header, (key1, key2) in fraction_header_map.items():
+        try:
+            indices = [i for i, token in enumerate(tokens) if token == header]
+            if not indices: continue
+            
+            temp_data = []
+            for start_index in indices:
+                count = 0
+                i = start_index + 1
+                while count < 5 and i < len(tokens):
+                    if re.match(r'^\d+/\d+$', tokens[i]):
+                        temp_data.append(tokens[i])
+                        count += 1
+                    i += 1
+            
+            if len(temp_data) >= num_players:
+                print(f"Found column '{header}', data: {temp_data[:num_players]}")
+                sys.stdout.flush()
+                for i in range(num_players):
+                    parts = temp_data[i].split('/')
+                    if len(parts) == 2:
+                        player_stats[i][key1] = int(parts[0])
+                        player_stats[i][key2] = int(parts[1])
+        except (ValueError, IndexError):
+            continue
+
+    final_stats_list = [stats for stats in player_stats if len(stats) >= 12] # 全12項目が揃っているか
+            
+    print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---")
+    print(final_stats_list)
     sys.stdout.flush()
-    return found_stats_blocks
-
-def calculate_standings(league_filter=None):
-    if league_filter: teams = Team.query.filter_by(league=league_filter).all()
-    else: teams = Team.query.all()
-    standings = []
-    for team in teams:
-        wins, losses, points_for, points_against, stats_games_played = 0, 0, 0, 0, 0
-        home_games = Game.query.filter_by(home_team_id=team.id, is_finished=True).all()
-        for game in home_games:
-            if game.winner_id is None:
-                points_for += game.home_score; points_against += game.away_score; stats_games_played += 1
-            if game.winner_id == team.id: wins += 1
-            elif game.loser_id == team.id: losses += 1
-            elif game.home_score > game.away_score: wins += 1
-            elif game.home_score < game.away_score: losses += 1
-        away_games = Game.query.filter_by(away_team_id=team.id, is_finished=True).all()
-        for game in away_games:
-            if game.winner_id is None:
-                points_for += game.away_score; points_against += game.home_score; stats_games_played += 1
-            if game.winner_id == team.id: wins += 1
-            elif game.loser_id == team.id: losses += 1
-            elif game.away_score > game.home_score: wins += 1
-            elif game.away_score < game.home_score: losses += 1
-        points = (wins * 2) + (losses * 1)
-        standings.append({
-            'team': team, 'team_name': team.name, 'league': team.league, 'wins': wins, 'losses': losses, 'points': points,
-            'avg_pf': round(points_for / stats_games_played, 1) if stats_games_played > 0 else 0,
-            'avg_pa': round(points_against / stats_games_played, 1) if stats_games_played > 0 else 0,
-            'diff': points_for - points_against, 'stats_games_played': stats_games_played
-        })
-    standings.sort(key=lambda x: (x['points'], x['diff']), reverse=True)
-    return standings
-
-def get_stats_leaders():
-    leaders = {}
-    stat_fields = {'pts': '平均得点', 'ast': '平均アシスト', 'reb': '平均リバウンド', 'stl': '平均スティール', 'blk': '平均ブロック'}
-    for field_key, field_name in stat_fields.items():
-        avg_stat = func.avg(getattr(PlayerStat, field_key)).label('avg_value')
-        query_result = db.session.query(Player.name, avg_stat).join(PlayerStat, PlayerStat.player_id == Player.id).group_by(Player.id).order_by(db.desc('avg_value')).limit(5).all()
-        leaders[field_name] = query_result
-    return leaders
-
-def calculate_team_stats():
-    team_stats_list = []
-    standings_info = calculate_standings()
-    shooting_stats_query = db.session.query(
-        Player.team_id, func.sum(PlayerStat.pts).label('total_pts'),
-        func.sum(PlayerStat.ast).label('total_ast'), func.sum(PlayerStat.reb).label('total_reb'),
-        func.sum(PlayerStat.stl).label('total_stl'), func.sum(PlayerStat.blk).label('total_blk'),
-        func.sum(PlayerStat.foul).label('total_foul'), func.sum(PlayerStat.turnover).label('total_turnover'),
-        func.sum(PlayerStat.fgm).label('total_fgm'), func.sum(PlayerStat.fga).label('total_fga'),
-        func.sum(PlayerStat.three_pm).label('total_3pm'), func.sum(PlayerStat.three_pa).label('total_3pa'),
-        func.sum(PlayerStat.ftm).label('total_ftm'), func.sum(PlayerStat.fta).label('total_fta')
-    ).join(Player).group_by(Player.team_id).all()
-    shooting_map = {s.team_id: s for s in shooting_stats_query}
-    for team_standings in standings_info:
-        team_obj = team_standings.get('team')
-        if not team_obj: continue
-        stats_games_played = team_standings.get('stats_games_played', 0)
-        team_shooting = shooting_map.get(team_obj.id)
-        stats_dict = team_standings.copy()
-        if stats_games_played > 0 and team_shooting:
-            stats_dict.update({
-                'avg_ast': team_shooting.total_ast / stats_games_played, 'avg_reb': team_shooting.total_reb / stats_games_played,
-                'avg_stl': team_shooting.total_stl / stats_games_played, 'avg_blk': team_shooting.total_blk / stats_games_played,
-                'avg_foul': team_shooting.total_foul / stats_games_played, 'avg_turnover': team_shooting.total_turnover / stats_games_played,
-                'avg_fgm': team_shooting.total_fgm / stats_games_played, 'avg_fga': team_shooting.total_fga / stats_games_played,
-                'avg_three_pm': team_shooting.total_3pm / stats_games_played, 'avg_three_pa': team_shooting.total_3pa / stats_games_played,
-                'avg_ftm': team_shooting.total_ftm / stats_games_played, 'avg_fta': team_shooting.total_fta / stats_games_played,
-                'fg_pct': (team_shooting.total_fgm / team_shooting.total_fga * 100) if team_shooting.total_fga > 0 else 0,
-                'three_p_pct': (team_shooting.total_3pm / team_shooting.total_3pa * 100) if team_shooting.total_3pa > 0 else 0,
-                'ft_pct': (team_shooting.total_ftm / team_shooting.total_fta * 100) if team_shooting.total_fta > 0 else 0,
-            })
-        team_stats_list.append(stats_dict)
-    return team_stats_list
+    return final_stats_list
 
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
@@ -551,23 +502,15 @@ def ocr_upload():
 
     try:
         api_key = os.environ.get('OCR_SPACE_API_KEY')
-        if not api_key: raise Exception("OCR.spaceのAPIキーが設定されていません。")
+        if not api_key:
+            raise Exception("OCR.spaceのAPIキーが設定されていません。")
 
-        # 画像の前処理を実行
-        processed_image = preprocess_image(file.stream)
-        
-        # ★★★ OCR Engine 2 と テーブル認識モード を指定 ★★★
-        payload = {
-            'isOverlayRequired': False, 
-            'apikey': api_key, 
-            'language': 'eng', 
-            'OcrEngine': 2,
-            'isTable': True
-        }
+        # ★★★ テーブルモードをやめ、Engine 2 のみ指定 ★★★
+        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng', 'OcrEngine': 2}
         
         response = requests.post(
             'https://api.ocr.space/parse/image',
-            files={'file': ('image.png', processed_image, 'image/png')},
+            files={'file': (file.filename, file.stream, file.mimetype)},
             data=payload,
         )
         response.raise_for_status()
@@ -576,8 +519,8 @@ def ocr_upload():
         if not result.get('ParsedResults'):
             return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
 
-        # テーブル解析結果を取得
-        parsed_data = parse_nba2k_stats(result['ParsedResults'][0])
+        full_text = result['ParsedResults'][0]['ParsedText']
+        parsed_data = parse_nba2k_stats(full_text)
         
         if not parsed_data:
             return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
@@ -586,7 +529,6 @@ def ocr_upload():
 
     except Exception as e:
         return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
-
 # --- 6. データベース初期化コマンドと実行 ---
 @app.cli.command('init-db')
 def init_db_command():
