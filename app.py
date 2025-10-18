@@ -120,51 +120,80 @@ def generate_password(length=4):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 def preprocess_image(image_stream):
+    """画像をOCRで読みやすいように前処理する（強化版）"""
     img = Image.open(image_stream)
+    # 1. グレースケール（白黒）化
     img = img.convert('L')
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(4.0)
+    # 2. コントラストを強調
+    enhancer_contrast = ImageEnhance.Contrast(img)
+    img = enhancer_contrast.enhance(2.0) # 2.0は強調の度合い
+    # 3. シャープネスを強調
     enhancer_sharpness = ImageEnhance.Sharpness(img)
-    img = enhancer_sharpness.enhance(4.0)
+    img = enhancer_sharpness.enhance(2.0)
+    
+    # 処理後の画像をメモリ上でバイトデータに変換して返す
     img_byte_arr = io.BytesIO()
     img.save(img_byte_arr, format='PNG')
     img_byte_arr.seek(0)
     return img_byte_arr
 
-def parse_nba2k_stats(ocr_text):
-    print("--- OCR RAW TEXT (Final, Skip-Total Method) ---"); print(ocr_text); sys.stdout.flush()
-    tokens = ocr_text.split()
-    header_map = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'FOULS': 'foul', 'TO': 'turnover'}
-    fraction_header_map = {'FGM/FGA': ('fgm', 'fga'), '3PM/3PA': ('three_pm', 'three_pa'), 'FTM/FTA': ('ftm', 'fta')}
-    num_players = 10
-    player_stats = [{} for _ in range(num_players)]
-    print("--- PARSING TOKENS BY COLUMN (SKIPPING TOTALS) ---"); sys.stdout.flush()
-    for header, key in header_map.items():
-        try:
-            start_index = tokens.index(header)
-            team1_stats = tokens[start_index + 1 : start_index + 6]; team2_stats = tokens[start_index + 7 : start_index + 12]
-            stats_for_this_column = team1_stats + team2_stats
-            if len(stats_for_this_column) != 10: continue
-            print(f"Found column '{header}', data: {stats_for_this_column}"); sys.stdout.flush()
-            for i in range(num_players):
-                stat_value = stats_for_this_column[i] if stats_for_this_column[i].isdigit() else '0'
-                player_stats[i][key] = int(stat_value)
-        except (ValueError, IndexError): continue
-    for header, (key1, key2) in fraction_header_map.items():
-        try:
-            start_index = tokens.index(header)
-            team1_stats = tokens[start_index + 1 : start_index + 6]; team2_stats = tokens[start_index + 7 : start_index + 12]
-            stats_for_this_column = team1_stats + team2_stats
-            if len(stats_for_this_column) != 10: continue
-            print(f"Found column '{header}', data: {stats_for_this_column}"); sys.stdout.flush()
-            for i in range(num_players):
-                parts = stats_for_this_column[i].split('/')
-                if len(parts) == 2: player_stats[i][key1] = int(parts[0]); player_stats[i][key2] = int(parts[1])
-        except (ValueError, IndexError): continue
-    final_stats_list = [stats for stats in player_stats if len(stats) >= 12]
-    print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---"); print(final_stats_list); sys.stdout.flush()
-    return final_stats_list
+def parse_nba2k_stats_from_table(ocr_result):
+    """OCR.spaceのテーブル解析結果からスタッツを抽出する関数"""
+    print("--- OCR PARSED RESULT (TABLE METHOD) ---")
+    print(ocr_result)
+    sys.stdout.flush()
 
+    found_players_stats = []
+    
+    parsed_text = ocr_result.get('ParsedText', '')
+    lines = parsed_text.split('\r\n')
+    
+    for line in lines:
+        parts = line.split('\t') # タブで区切られた列データ
+        
+        # プレイヤー名らしきもの + グレード + 10個のスタッツ = 12要素以上
+        if len(parts) < 12:
+            continue
+
+        try:
+            # グレード(B+など)の列を見つけ、その前をプレイヤー名とする
+            grade_index = -1
+            for i, part in enumerate(parts):
+                if re.match(r'^[A-Z][+-]?$', part.strip()):
+                    grade_index = i
+                    break
+            
+            if grade_index == -1 or grade_index == 0: continue
+
+            player_name = "".join(parts[:grade_index]).strip().lstrip('•©@‣▸').strip()
+            if not player_name or "合計" in player_name or len(player_name) < 3:
+                continue
+            
+            # グレードの後の10個の要素をスタッツとして取得
+            stats_parts = parts[grade_index + 1 : grade_index + 11]
+            if len(stats_parts) < 10: continue
+
+            fgm, fga = map(int, stats_parts[7].split('/'))
+            three_pm, three_pa = map(int, stats_parts[8].split('/'))
+            ftm, fta = map(int, stats_parts[9].split('/'))
+            
+            stats_block = {
+                'pts': int(stats_parts[0]), 'reb': int(stats_parts[1]), 'ast': int(stats_parts[2]),
+                'stl': int(stats_parts[3]), 'blk': int(stats_parts[4]), 'foul': int(stats_parts[5]),
+                'turnover': int(stats_parts[6]), 'fgm': fgm, 'fga': fga,
+                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
+            }
+            found_players_stats.append({'name': player_name, 'stats': stats_block})
+
+        except (ValueError, IndexError) as e:
+            print(f"Skipping line due to parsing error: {line}, Error: {e}")
+            sys.stdout.flush()
+            continue
+
+    print(f"--- PARSED {len(found_players_stats)} PLAYERS ---")
+    print(found_players_stats)
+    sys.stdout.flush()
+    return found_players_stats
 def calculate_standings(league_filter=None):
     if league_filter: teams = Team.query.filter_by(league=league_filter).all()
     else: teams = Team.query.all()
@@ -519,12 +548,22 @@ def ocr_upload():
     file = request.files['image']
     if not (file and file.filename != '' and allowed_file(file.filename)):
         return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
+
     try:
         api_key = os.environ.get('OCR_SPACE_API_KEY')
         if not api_key: raise Exception("OCR.spaceのAPIキーが設定されていません。")
-        
+
+        # ★★★ 画像の前処理を実行 ★★★
         processed_image = preprocess_image(file.stream)
-        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng', 'OcrEngine': 2}
+        
+        # ★★★ OCR Engine 2 と テーブル認識モード を指定 ★★★
+        payload = {
+            'isOverlayRequired': True, # テーブル認識のためにはTrueが必要
+            'apikey': api_key, 
+            'language': 'eng', 
+            'OcrEngine': 2,
+            'isTable': True
+        }
         
         response = requests.post(
             'https://api.ocr.space/parse/image',
@@ -536,13 +575,13 @@ def ocr_upload():
 
         if not result.get('ParsedResults'):
             return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
-        
-        full_text = result['ParsedResults'][0]['ParsedText']
-        parsed_data = parse_nba2k_stats(full_text)
+
+        # テーブル解析結果を取得
+        parsed_data = parse_nba2k_stats_from_table(result['ParsedResults'][0])
         
         if not parsed_data:
             return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
-        
+
         return jsonify(parsed_data)
 
     except Exception as e:
