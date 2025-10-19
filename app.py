@@ -480,6 +480,24 @@ def stats_page():
     return render_template('stats.html', team_stats=team_stats, individual_stats=individual_stats)
 
 # --- 6. データベース初期化コマンドと実行 ---
+@app.route('/schedule/delete/all', methods=['POST'])
+@login_required
+@admin_required
+def delete_all_schedules():
+    try:
+        # 先に全てのPlayerStatレコードを削除
+        db.session.query(PlayerStat).delete()
+        # 次に全てのGameレコードを削除
+        db.session.query(Game).delete()
+        
+        db.session.commit()
+        flash('全ての日程と試合結果が正常に削除されました。')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'削除中にエラーが発生しました: {e}')
+        
+    return redirect(url_for('schedule'))
+
 @app.cli.command('init-db')
 def init_db_command():
     db.drop_all()

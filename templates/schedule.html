@@ -3,9 +3,15 @@
   <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
     <h2 style="margin-right: 20px;">試合日程・結果</h2>
     {% if current_user.is_authenticated and current_user.is_admin %}
-      <div>
-        <a href="{{ url_for('auto_schedule') }}" class="button" style="text-decoration: none; background-color: #ffc107; color: black; padding: 8px 15px; border-radius: 5px; margin-right: 10px;">自動作成</a>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <a href="{{ url_for('auto_schedule') }}" class="button" style="text-decoration: none; background-color: #ffc107; color: black; padding: 8px 15px; border-radius: 5px;">自動作成</a>
         <a href="{{ url_for('add_schedule') }}" class="button" style="text-decoration: none; background-color: #007bff; color: white; padding: 8px 15px; border-radius: 5px;">新しい日程を追加</a>
+        
+        {# ★★★ ここからが追加部分 ★★★ #}
+        <form action="{{ url_for('delete_all_schedules') }}" method="post" onsubmit="return confirm('警告：本当に全ての日程と試合結果を削除しますか？この操作は元に戻せません。');" style="margin: 0;">
+          <button type="submit" class="button" style="background-color: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer;">全日程を削除</button>
+        </form>
+        {# ★★★ ここまで ★★★ #}
       </div>
     {% endif %}
   </div>
