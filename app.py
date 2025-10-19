@@ -8,7 +8,6 @@ import re
 import io
 import json
 import sys
-import requests
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, case, or_
@@ -19,7 +18,6 @@ from collections import defaultdict, deque
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from itertools import combinations
-from PIL import Image, ImageEnhance, ImageFilter
 
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
@@ -118,52 +116,6 @@ def allowed_file(filename):
 
 def generate_password(length=4):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
-
-def preprocess_image(image_stream):
-    img = Image.open(image_stream)
-    img = img.convert('L')
-    enhancer_contrast = ImageEnhance.Contrast(img)
-    img = enhancer_contrast.enhance(2.0)
-    enhancer_sharpness = ImageEnhance.Sharpness(img)
-    img = enhancer_sharpness.enhance(2.0)
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='PNG')
-    img_byte_arr.seek(0)
-    return img_byte_arr
-
-def parse_nba2k_stats(ocr_text):
-    print("--- OCR RAW TEXT (Final, Skip-Total Method) ---"); print(ocr_text); sys.stdout.flush()
-    tokens = ocr_text.split()
-    header_map = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'FOULS': 'foul', 'TO': 'turnover'}
-    fraction_header_map = {'FGM/FGA': ('fgm', 'fga'), '3PM/3PA': ('three_pm', 'three_pa'), 'FTM/FTA': ('ftm', 'fta')}
-    num_players = 10
-    player_stats = [{} for _ in range(num_players)]
-    print("--- PARSING TOKENS BY COLUMN (SKIPPING TOTALS) ---"); sys.stdout.flush()
-    for header, key in header_map.items():
-        try:
-            start_index = tokens.index(header)
-            team1_stats = tokens[start_index + 1 : start_index + 6]; team2_stats = tokens[start_index + 7 : start_index + 12]
-            stats_for_this_column = team1_stats + team2_stats
-            if len(stats_for_this_column) != 10: continue
-            print(f"Found column '{header}', data: {stats_for_this_column}"); sys.stdout.flush()
-            for i in range(num_players):
-                stat_value = stats_for_this_column[i] if stats_for_this_column[i].isdigit() else '0'
-                player_stats[i][key] = int(stat_value)
-        except (ValueError, IndexError): continue
-    for header, (key1, key2) in fraction_header_map.items():
-        try:
-            start_index = tokens.index(header)
-            team1_stats = tokens[start_index + 1 : start_index + 6]; team2_stats = tokens[start_index + 7 : start_index + 12]
-            stats_for_this_column = team1_stats + team2_stats
-            if len(stats_for_this_column) != 10: continue
-            print(f"Found column '{header}', data: {stats_for_this_column}"); sys.stdout.flush()
-            for i in range(num_players):
-                parts = stats_for_this_column[i].split('/')
-                if len(parts) == 2: player_stats[i][key1] = int(parts[0]); player_stats[i][key2] = int(parts[1])
-        except (ValueError, IndexError): continue
-    final_stats_list = [stats for stats in player_stats if len(stats) >= 12]
-    print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---"); print(final_stats_list); sys.stdout.flush()
-    return final_stats_list
 
 def calculate_standings(league_filter=None):
     if league_filter: teams = Team.query.filter_by(league=league_filter).all()
