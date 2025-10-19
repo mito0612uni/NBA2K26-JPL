@@ -20,15 +20,10 @@ from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from itertools import combinations
 from PIL import Image, ImageEnhance, ImageFilter
-from google.cloud import vision # ★★★ この行が抜けていました ★★★
 
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_very_secret_key_change_it'
-google_credentials_path = '/etc/secrets/google_credentials.json'
-if os.path.exists(google_credentials_path):
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = google_credentials_path
-
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 cloudinary.config( 
@@ -124,6 +119,52 @@ def allowed_file(filename):
 def generate_password(length=4):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
+def preprocess_image(image_stream):
+    img = Image.open(image_stream)
+    img = img.convert('L')
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2.0)
+    enhancer_sharpness = ImageEnhance.Sharpness(img)
+    img = enhancer_sharpness.enhance(2.0)
+    img_byte_arr = io.BytesIO()
+    img.save(img_byte_arr, format='PNG')
+    img_byte_arr.seek(0)
+    return img_byte_arr
+
+def parse_nba2k_stats(ocr_text):
+    print("--- OCR RAW TEXT (Final, Skip-Total Method) ---"); print(ocr_text); sys.stdout.flush()
+    tokens = ocr_text.split()
+    header_map = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'FOULS': 'foul', 'TO': 'turnover'}
+    fraction_header_map = {'FGM/FGA': ('fgm', 'fga'), '3PM/3PA': ('three_pm', 'three_pa'), 'FTM/FTA': ('ftm', 'fta')}
+    num_players = 10
+    player_stats = [{} for _ in range(num_players)]
+    print("--- PARSING TOKENS BY COLUMN (SKIPPING TOTALS) ---"); sys.stdout.flush()
+    for header, key in header_map.items():
+        try:
+            start_index = tokens.index(header)
+            team1_stats = tokens[start_index + 1 : start_index + 6]; team2_stats = tokens[start_index + 7 : start_index + 12]
+            stats_for_this_column = team1_stats + team2_stats
+            if len(stats_for_this_column) != 10: continue
+            print(f"Found column '{header}', data: {stats_for_this_column}"); sys.stdout.flush()
+            for i in range(num_players):
+                stat_value = stats_for_this_column[i] if stats_for_this_column[i].isdigit() else '0'
+                player_stats[i][key] = int(stat_value)
+        except (ValueError, IndexError): continue
+    for header, (key1, key2) in fraction_header_map.items():
+        try:
+            start_index = tokens.index(header)
+            team1_stats = tokens[start_index + 1 : start_index + 6]; team2_stats = tokens[start_index + 7 : start_index + 12]
+            stats_for_this_column = team1_stats + team2_stats
+            if len(stats_for_this_column) != 10: continue
+            print(f"Found column '{header}', data: {stats_for_this_column}"); sys.stdout.flush()
+            for i in range(num_players):
+                parts = stats_for_this_column[i].split('/')
+                if len(parts) == 2: player_stats[i][key1] = int(parts[0]); player_stats[i][key2] = int(parts[1])
+        except (ValueError, IndexError): continue
+    final_stats_list = [stats for stats in player_stats if len(stats) >= 12]
+    print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---"); print(final_stats_list); sys.stdout.flush()
+    return final_stats_list
+
 def calculate_standings(league_filter=None):
     if league_filter: teams = Team.query.filter_by(league=league_filter).all()
     else: teams = Team.query.all()
@@ -198,45 +239,6 @@ def calculate_team_stats():
             })
         team_stats_list.append(stats_dict)
     return team_stats_list
-
-def parse_nba2k_stats(response, selected_players):
-    annotations = response.text_annotations
-    if not annotations: return {}
-    print("--- OCR RAW TEXT (Final, Coordinate-based Method) ---"); print(annotations[0].description); sys.stdout.flush()
-    stats_data = {}
-    lines = defaultdict(list)
-    for i in range(1, len(annotations)):
-        ann = annotations[i]
-        y_center = (ann.bounding_poly.vertices[0].y + ann.bounding_poly.vertices[2].y) / 2
-        line_key = round(y_center / 20)
-        lines[line_key].append({'text': ann.description, 'ann': ann})
-    print("--- RECONSTRUCTED LINES FROM COORDINATES ---"); sys.stdout.flush()
-    for player_name in selected_players:
-        found_player = False
-        for y_key in sorted(lines.keys()):
-            line_parts = [item['text'] for item in lines[y_key]]
-            line_text = "".join(line_parts)
-            if player_name in line_text and "合計" not in line_text:
-                numbers = [p for p in line_parts if re.match(r'^\d+$', p)]
-                fractions = [p for p in line_parts if re.match(r'^\d+/\d+$', p)]
-                if len(numbers) >= 7 and len(fractions) == 3:
-                    try:
-                        print(f"MATCH FOUND for '{player_name}' in line: {' '.join(line_parts)}"); sys.stdout.flush()
-                        pts, reb, ast, stl, blk, foul, turnover = map(int, numbers[:7])
-                        fgm_fga_str, three_pm_pa_str, ftm_fta_str = fractions
-                        fgm, fga = map(int, fgm_fga_str.split('/')); three_pm, three_pa = map(int, three_pm_pa_str.split('/')); ftm, fta = map(int, ftm_fta_str.split('/'))
-                        stats_data[player_name] = {
-                            'pts': pts, 'reb': reb, 'ast': ast, 'stl': stl, 'blk': blk,
-                            'foul': foul, 'turnover': turnover, 'fgm': fgm, 'fga': fga,
-                            'three_pm': three_pm, 'three_pa': three_pa,
-                            'ftm': ftm, 'fta': fta
-                        }
-                        found_player = True; break
-                    except (ValueError, IndexError) as e:
-                        print(f"Failed to parse stats values for line: {' '.join(line_parts)}, Error: {e}"); sys.stdout.flush(); continue
-        if found_player: continue
-    print(f"--- PARSED DATA ({len(stats_data)} players) ---"); print(stats_data); sys.stdout.flush()
-    return stats_data
 
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
