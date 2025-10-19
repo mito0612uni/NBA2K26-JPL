@@ -8,7 +8,6 @@
   .bench-player:hover { background-color: #e0e0e0; }
   .bench-player.selected { background-color: #a0a0a0; color: white; cursor: not-allowed; }
   .stats-table input { width: 40px; }
-  #ocr-feedback { margin-top: 10px; font-weight: bold; }
 </style>
 
 <h2>
@@ -19,21 +18,13 @@
 <p style="margin-bottom: 15px;">
   チーム得点は自動計算されます。
   {% if current_user.is_authenticated %}
-  OCRで自動入力するか、ベンチから5名選んでスタッツを手動入力してください。
+  ベンチから5名選んでスタッツを手動入力してください。
   {% else %}
   これは閲覧専用です。結果を編集するには<a href="{{ url_for('login') }}">ログイン</a>してください。
   {% endif %}
 </p>
 
 {% if current_user.is_authenticated and current_user.is_admin %}
-<div style="border: 2px dashed #007bff; padding: 15px; margin-bottom: 20px; border-radius: 5px;">
-  <h4>OCR自動入力 (試験機能)</h4>
-  <p>スクリーンショット画像をアップロードしてください。</p>
-  <input type="file" id="ocr-image-input" accept="image/*">
-  <button type="button" id="ocr-submit-btn">画像から読み込む</button>
-  <div id="ocr-feedback"></div>
-</div>
-
 <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
     <h4>管理者アクション：不戦勝処理</h4>
     <p>以下のボタンを押すと、スタッツを入力せずに不戦勝として即座に結果を記録します（スコアは0-0になります）。</p>
@@ -170,7 +161,6 @@ document.addEventListener('DOMContentLoaded', function() {
   populateInitialStats();
 
   if (isUserAuthenticated) {
-    // --- 手動入力の処理 ---
     document.querySelectorAll('.bench-player').forEach(playerSpan => {
       playerSpan.addEventListener('click', function() {
         if (this.classList.contains('selected')) return;
@@ -199,77 +189,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
       });
     });
-
-    // --- OCRボタンの処理 ---
-    const ocrBtn = document.getElementById('ocr-submit-btn');
-    if (ocrBtn) {
-        ocrBtn.addEventListener('click', function() {
-            const imageInput = document.getElementById('ocr-image-input');
-            const feedbackDiv = document.getElementById('ocr-feedback');
-            
-            const selectedPlayerRows = document.querySelectorAll('#stats-body-home tr, #stats-body-away tr');
-            if (selectedPlayerRows.length === 0) {
-                feedbackDiv.textContent = 'エラー: 先に出場選手をベンチから選択してください。';
-                feedbackDiv.style.color = 'red';
-                return;
-            }
-            
-            if (imageInput.files.length === 0) {
-                feedbackDiv.textContent = '画像ファイルを選択してください。';
-                feedbackDiv.style.color = 'red';
-                return;
-            }
-
-            feedbackDiv.textContent = '画像をアップロードして解析中...';
-            feedbackDiv.style.color = 'blue';
-
-            const formData = new FormData();
-            formData.append('image', imageInput.files[0]);
-
-            fetch("{{ url_for('ocr_upload') }}", {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(statsList => {
-                if (statsList.error) {
-                    feedbackDiv.textContent = `エラー: ${statsList.error}`;
-                    feedbackDiv.style.color = 'red';
-                    return;
-                }
-                
-                if (statsList.length < selectedPlayerRows.length) {
-                    feedbackDiv.textContent = `警告: 選択した選手数(${selectedPlayerRows.length}人)より少ないスタッツ(${statsList.length}件)しか検出できませんでした。`;
-                    feedbackDiv.style.color = 'orange';
-                }
-
-                selectedPlayerRows.forEach((row, index) => {
-                    const stats = statsList[index];
-                    if (!stats) return;
-
-                    const playerId = row.dataset.playerId;
-                    for (const statName in stats) {
-                        const input = row.querySelector(`input[name='player_${playerId}_${statName}']`);
-                        if (input) {
-                            input.value = stats[statName];
-                        }
-                    }
-                });
-
-                if (statsList.length > 0) {
-                    feedbackDiv.textContent = `成功: ${Math.min(statsList.length, selectedPlayerRows.length)}人の選手にスタッツを反映しました。`;
-                    feedbackDiv.style.color = 'green';
-                } else {
-                    feedbackDiv.textContent = 'エラー: 画像から有効なスタッツを見つけられませんでした。';
-                    feedbackDiv.style.color = 'red';
-                }
-            })
-            .catch(error => {
-                feedbackDiv.textContent = `通信エラーが発生しました: ${error}`;
-                feedbackDiv.style.color = 'red';
-            });
-        });
-    }
   }
 });
 </script>

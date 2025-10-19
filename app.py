@@ -4,10 +4,6 @@ import string
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
-import re
-import io
-import json
-import sys
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, case, or_
@@ -461,44 +457,6 @@ def stats_page():
         case((func.sum(PlayerStat.fta) > 0, (func.sum(PlayerStat.ftm) * 100.0 / func.sum(PlayerStat.fta))), else_=0).label('ft_pct')
     ).join(Player, PlayerStat.player_id == Player.id).join(Team, Player.team_id == Team.id).group_by(Player.id, Team.name).all()
     return render_template('stats.html', team_stats=team_stats, individual_stats=individual_stats)
-
-@app.route('/ocr-upload', methods=['POST'])
-@login_required
-@admin_required
-def ocr_upload():
-    if 'image' not in request.files:
-        return jsonify({'error': '画像ファイルがありません'}), 400
-    file = request.files['image']
-    if not (file and file.filename != '' and allowed_file(file.filename)):
-        return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
-    try:
-        api_key = os.environ.get('OCR_SPACE_API_KEY')
-        if not api_key: raise Exception("OCR.spaceのAPIキーが設定されていません。")
-        
-        processed_image = preprocess_image(file.stream)
-        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng', 'OcrEngine': 2}
-        
-        response = requests.post(
-            'https://api.ocr.space/parse/image',
-            files={'file': ('image.png', processed_image, 'image/png')},
-            data=payload,
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        if not result.get('ParsedResults'):
-            return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
-        
-        full_text = result['ParsedResults'][0]['ParsedText']
-        parsed_data = parse_nba2k_stats(full_text)
-        
-        if not parsed_data:
-            return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
-        
-        return jsonify(parsed_data)
-
-    except Exception as e:
-        return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
 
 # --- 6. データベース初期化コマンドと実行 ---
 @app.cli.command('init-db')
