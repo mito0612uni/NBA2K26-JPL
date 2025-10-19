@@ -122,8 +122,8 @@ def generate_password(length=4):
 def preprocess_image(image_stream):
     img = Image.open(image_stream)
     img = img.convert('L')
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(2.0)
+    enhancer_contrast = ImageEnhance.Contrast(img)
+    img = enhancer_contrast.enhance(2.0)
     enhancer_sharpness = ImageEnhance.Sharpness(img)
     img = enhancer_sharpness.enhance(2.0)
     img_byte_arr = io.BytesIO()
