@@ -20,10 +20,15 @@ from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from itertools import combinations
 from PIL import Image, ImageEnhance, ImageFilter
+from google.cloud import vision # ★★★ この行が抜けていました ★★★
 
 # --- 1. アプリケーションとデータベースの初期設定 ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_very_secret_key_change_it'
+google_credentials_path = '/etc/secrets/google_credentials.json'
+if os.path.exists(google_credentials_path):
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = google_credentials_path
+
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 cloudinary.config( 
@@ -119,86 +124,6 @@ def allowed_file(filename):
 def generate_password(length=4):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
-def preprocess_image(image_stream):
-    """画像をOCRで読みやすいように前処理する（強化版）"""
-    img = Image.open(image_stream)
-    # 1. グレースケール（白黒）化
-    img = img.convert('L')
-    # 2. コントラストを強調
-    enhancer_contrast = ImageEnhance.Contrast(img)
-    img = enhancer_contrast.enhance(2.0) # 2.0は強調の度合い
-    # 3. シャープネスを強調
-    enhancer_sharpness = ImageEnhance.Sharpness(img)
-    img = enhancer_sharpness.enhance(2.0)
-    
-    # 処理後の画像をメモリ上でバイトデータに変換して返す
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='PNG')
-    img_byte_arr.seek(0)
-    return img_byte_arr
-
-def parse_nba2k_stats_by_coordinates(response):
-    """Google Cloud Vision APIのレスポンスから、指定された座標のスタッツを抽出する"""
-    annotations = response.text_annotations
-    if not annotations:
-        return []
-
-    print("--- OCR RAW ANNOTATIONS (Final Coordinate Method) ---")
-    sys.stdout.flush()
-
-    # あなたが指定した座標の「宝の地図」
-    x_coords = [1905, 2063, 2210, 2363, 2508, 2656, 2800, 2990, 3215, 3425]
-    y_coords = [560, 640, 720, 800, 880, 1190, 1275, 1355, 1435, 1520]
-    stat_keys = [
-        'pts', 'reb', 'ast', 'stl', 'blk', 'foul', 'turnover', 
-        'fgm/fga', '3pm/3pa', 'ftm/fta'
-    ]
-    
-    found_stats_blocks = [{} for _ in range(10)]
-    TOLERANCE = 50 # 座標の許容誤差（ピクセル）
-
-    # OCRが検出した全ての単語についてループ
-    for i in range(1, len(annotations)):
-        ann = annotations[i]
-        word = ann.description
-        # 単語の中心座標を取得
-        x_center = (ann.bounding_poly.vertices[0].x + ann.bounding_poly.vertices[1].x) / 2
-        y_center = (ann.bounding_poly.vertices[0].y + ann.bounding_poly.vertices[2].y) / 2
-
-        # 10人分の各スタッツ座標と照合
-        for player_idx, target_y in enumerate(y_coords):
-            for stat_idx, target_x in enumerate(x_coords):
-                # 単語が目標座標の許容範囲内にあるかチェック
-                if (abs(x_center - target_x) < TOLERANCE and abs(y_center - target_y) < TOLERANCE):
-                    key = stat_keys[stat_idx]
-                    found_stats_blocks[player_idx][key] = word
-                    break # 一致したら次の単語へ
-            else:
-                continue
-            break
-
-    # 収集したデータを最終的な形式に変換
-    final_stats_list = []
-    for p_stats in found_stats_blocks:
-        try:
-            fgm, fga = map(int, p_stats['fgm/fga'].split('/'))
-            three_pm, three_pa = map(int, p_stats['3pm/3pa'].split('/'))
-            ftm, fta = map(int, p_stats['ftm/fta'].split('/'))
-
-            final_stats_list.append({
-                'pts': int(p_stats['pts']), 'reb': int(p_stats['reb']), 'ast': int(p_stats['ast']),
-                'stl': int(p_stats['stl']), 'blk': int(p_stats['blk']), 'foul': int(p_stats['foul']),
-                'turnover': int(p_stats['turnover']), 'fgm': fgm, 'fga': fga,
-                'three_pm': three_pm, 'three_pa': three_pa, 'ftm': ftm, 'fta': fta
-            })
-        except (KeyError, ValueError, IndexError):
-            continue
-            
-    print(f"--- PARSED {len(final_stats_list)} STATS BLOCKS ---")
-    print(final_stats_list)
-    sys.stdout.flush()
-    return final_stats_list
-
 def calculate_standings(league_filter=None):
     if league_filter: teams = Team.query.filter_by(league=league_filter).all()
     else: teams = Team.query.all()
@@ -273,6 +198,45 @@ def calculate_team_stats():
             })
         team_stats_list.append(stats_dict)
     return team_stats_list
+
+def parse_nba2k_stats(response, selected_players):
+    annotations = response.text_annotations
+    if not annotations: return {}
+    print("--- OCR RAW TEXT (Final, Coordinate-based Method) ---"); print(annotations[0].description); sys.stdout.flush()
+    stats_data = {}
+    lines = defaultdict(list)
+    for i in range(1, len(annotations)):
+        ann = annotations[i]
+        y_center = (ann.bounding_poly.vertices[0].y + ann.bounding_poly.vertices[2].y) / 2
+        line_key = round(y_center / 20)
+        lines[line_key].append({'text': ann.description, 'ann': ann})
+    print("--- RECONSTRUCTED LINES FROM COORDINATES ---"); sys.stdout.flush()
+    for player_name in selected_players:
+        found_player = False
+        for y_key in sorted(lines.keys()):
+            line_parts = [item['text'] for item in lines[y_key]]
+            line_text = "".join(line_parts)
+            if player_name in line_text and "合計" not in line_text:
+                numbers = [p for p in line_parts if re.match(r'^\d+$', p)]
+                fractions = [p for p in line_parts if re.match(r'^\d+/\d+$', p)]
+                if len(numbers) >= 7 and len(fractions) == 3:
+                    try:
+                        print(f"MATCH FOUND for '{player_name}' in line: {' '.join(line_parts)}"); sys.stdout.flush()
+                        pts, reb, ast, stl, blk, foul, turnover = map(int, numbers[:7])
+                        fgm_fga_str, three_pm_pa_str, ftm_fta_str = fractions
+                        fgm, fga = map(int, fgm_fga_str.split('/')); three_pm, three_pa = map(int, three_pm_pa_str.split('/')); ftm, fta = map(int, ftm_fta_str.split('/'))
+                        stats_data[player_name] = {
+                            'pts': pts, 'reb': reb, 'ast': ast, 'stl': stl, 'blk': blk,
+                            'foul': foul, 'turnover': turnover, 'fgm': fgm, 'fga': fga,
+                            'three_pm': three_pm, 'three_pa': three_pa,
+                            'ftm': ftm, 'fta': fta
+                        }
+                        found_player = True; break
+                    except (ValueError, IndexError) as e:
+                        print(f"Failed to parse stats values for line: {' '.join(line_parts)}, Error: {e}"); sys.stdout.flush(); continue
+        if found_player: continue
+    print(f"--- PARSED DATA ({len(stats_data)} players) ---"); print(stats_data); sys.stdout.flush()
+    return stats_data
 
 # --- 5. ルート（ページの表示と処理） ---
 @app.route('/login', methods=['GET', 'POST'])
@@ -553,20 +517,30 @@ def ocr_upload():
     file = request.files['image']
     if not (file and file.filename != '' and allowed_file(file.filename)):
         return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
-
     try:
-        client = vision.ImageAnnotatorClient()
-        content = file.read()
-        image = vision.Image(content=content)
+        api_key = os.environ.get('OCR_SPACE_API_KEY')
+        if not api_key: raise Exception("OCR.spaceのAPIキーが設定されていません。")
         
-        response = client.text_detection(image=image)
-        if response.error.message: raise Exception(response.error.message)
+        processed_image = preprocess_image(file.stream)
+        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng', 'OcrEngine': 2}
         
-        parsed_data = parse_nba2k_stats_by_coordinates(response)
+        response = requests.post(
+            'https://api.ocr.space/parse/image',
+            files={'file': ('image.png', processed_image, 'image/png')},
+            data=payload,
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        if not result.get('ParsedResults'):
+            return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
+        
+        full_text = result['ParsedResults'][0]['ParsedText']
+        parsed_data = parse_nba2k_stats(full_text)
         
         if not parsed_data:
             return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
-
+        
         return jsonify(parsed_data)
 
     except Exception as e:
