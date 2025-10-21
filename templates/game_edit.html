@@ -15,7 +15,7 @@
   チーム得点は自動計算されます。ベンチから5名選んでスタッツを入力してください。
 </p>
 
-{# ★★★ 管理者限定の機能は、このifブロックで囲みます ★★★ #}
+{# 管理者限定の機能（不戦勝）は、ログインしているか確認してから表示 #}
 {% if current_user.is_authenticated and current_user.is_admin %}
 <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
     <h4>管理者アクション：不戦勝処理</h4>
@@ -89,6 +89,7 @@
 
 {% block scripts %}
 <script>
+// ★★★ ここからが抜け落ちていたJavaScriptです ★★★
 const existingStats = {{ stats | tojson }};
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -110,9 +111,36 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   function populateInitialStats() {
-    // (この関数の中身は変更なし)
+    const statsHeaderHome = document.getElementById('stats-header-home');
+    const statsBodyHome = document.getElementById('stats-body-home');
+    const statsHeaderAway = document.getElementById('stats-header-away');
+    const statsBodyAway = document.getElementById('stats-body-away');
+    let homeHasStats = false;
+    let awayHasStats = false;
+
+    // 既存のスタッツを読み込む
+    for (const playerId in existingStats) {
+      const player = document.querySelector(`.bench-player[data-player-id='${playerId}']`);
+      if (player) {
+        const teamId = player.dataset.teamId;
+        const playerName = player.dataset.playerName;
+        if (teamId === 'home') {
+          statsBodyHome.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+          player.classList.add('selected'); 
+          homeHasStats = true;
+        } else if (teamId === 'away') {
+          statsBodyAway.insertAdjacentHTML('beforeend', createPlayerRow(playerId, playerName, teamId));
+          player.classList.add('selected');
+          awayHasStats = true;
+        }
+      }
+    }
+    
+    if (homeHasStats) statsHeaderHome.innerHTML = createHeaderRow();
+    if (awayHasStats) statsHeaderAway.innerHTML = createHeaderRow();
   }
 
+  // ★ ページ読み込み時にこの関数を実行
   populateInitialStats();
 
   // --- 手動入力の処理 ---
@@ -136,7 +164,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
   document.querySelectorAll('.reset-btn').forEach(button => {
     button.addEventListener('click', function() {
-      // (リセットボタンの処理は変更なし)
+      const teamId = this.dataset.teamId;
+      document.getElementById(`stats-header-${teamId}`).innerHTML = '';
+      document.getElementById(`stats-body-${teamId}`).innerHTML = '';
+      document.querySelectorAll(`#bench-${teamId} .bench-player`).forEach(span => {
+        span.classList.remove('selected');
+      });
     });
   });
 });
