@@ -414,18 +414,19 @@ def forfeit_game(game_id):
 def edit_game(game_id):
     game = Game.query.get_or_404(game_id)
     if request.method == 'POST':
-    if not current_user.is_authenticated:
+        # ★★★ ここからログインチェックを復活させます ★★★
+        if not current_user.is_authenticated:
             flash('結果を保存するにはログインが必要です。')
             return redirect(url_for('login'))
+        # ★★★ ここまで ★★★
 
-        # (POST logic is unchanged)
+        game.youtube_url_home = request.form.get('youtube_url_home'); game.youtube_url_away = request.form.get('youtube_url_away')
         PlayerStat.query.filter_by(game_id=game_id).delete()
         home_total_score, away_total_score = 0, 0
         for team in [game.home_team, game.away_team]:
             for player in team.players:
                 if f'player_{player.id}_pts' in request.form:
-                    stat = PlayerStat(game_id=game.id, player_id=player.id)
-                    db.session.add(stat)
+                    stat = PlayerStat(game_id=game.id, player_id=player.id); db.session.add(stat)
                     stat.pts = request.form.get(f'player_{player.id}_pts', 0, type=int); stat.ast = request.form.get(f'player_{player.id}_ast', 0, type=int)
                     stat.reb = request.form.get(f'player_{player.id}_reb', 0, type=int); stat.stl = request.form.get(f'player_{player.id}_stl', 0, type=int)
                     stat.blk = request.form.get(f'player_{player.id}_blk', 0, type=int); stat.foul = request.form.get(f'player_{player.id}_foul', 0, type=int)
@@ -433,19 +434,14 @@ def edit_game(game_id):
                     stat.fga = request.form.get(f'player_{player.id}_fga', 0, type=int); stat.three_pm = request.form.get(f'player_{player.id}_three_pm', 0, type=int)
                     stat.three_pa = request.form.get(f'player_{player.id}_three_pa', 0, type=int); stat.ftm = request.form.get(f'player_{player.id}_ftm', 0, type=int)
                     stat.fta = request.form.get(f'player_{player.id}_fta', 0, type=int)
-                    if team.id == game.home_team_id:
-                        home_total_score += stat.pts
-                    else:
-                        away_total_score += stat.pts
-                        
+                    if team.id == game.home_team_id: home_total_score += stat.pts
+                    else: away_total_score += stat.pts
         game.home_score = home_total_score; game.away_score = away_total_score
         game.is_finished = True; game.winner_id = None; game.loser_id = None
-        
         db.session.commit()
         flash('試合結果が更新されました。'); return redirect(url_for('schedule'))
-        
-    # ★★★ ここが修正箇所です ★★★
-    # stat.__dict__ をやめて、必要なデータだけを手動で辞書に格納します
+    
+    # 閲覧（GETリクエスト）時のデータ準備は変更なし
     stats = {
         str(stat.player_id): {
             'pts': stat.pts, 'reb': stat.reb, 'ast': stat.ast, 'stl': stat.stl, 'blk': stat.blk,
@@ -453,9 +449,7 @@ def edit_game(game_id):
             'three_pm': stat.three_pm, 'three_pa': stat.three_pa, 'ftm': stat.ftm, 'fta': stat.fta
         } for stat in PlayerStat.query.filter_by(game_id=game_id).all()
     }
-    
     return render_template('game_edit.html', game=game, stats=stats)
-
 @app.route('/stats')
 def stats_page():
     team_stats = calculate_team_stats()
