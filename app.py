@@ -414,6 +414,10 @@ def forfeit_game(game_id):
 def edit_game(game_id):
     game = Game.query.get_or_404(game_id)
     if request.method == 'POST':
+    if not current_user.is_authenticated:
+            flash('結果を保存するにはログインが必要です。')
+            return redirect(url_for('login'))
+
         # (POST logic is unchanged)
         PlayerStat.query.filter_by(game_id=game_id).delete()
         home_total_score, away_total_score = 0, 0
