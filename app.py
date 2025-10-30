@@ -25,9 +25,9 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_very_secret_key_change_it'
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-cloudinary.config( 
-    cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME'), 
-    api_key = os.environ.get('CLOUDINARY_API_KEY'), 
+cloudinary.config(
+    cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    api_key = os.environ.get('CLOUDINARY_API_KEY'),
     api_secret = os.environ.get('CLOUDINARY_API_SECRET')
 )
 
@@ -230,116 +230,116 @@ def index():
     stats_leaders = get_stats_leaders()
     upcoming_games = Game.query.filter_by(is_finished=False).order_by(Game.game_date.asc(), Game.start_time.asc()).all()
     return render_template('index.html', overall_standings=overall_standings,
-                           league_a_standings=league_a_standings, league_b_standings=league_b_standings,
-                           leaders=stats_leaders, upcoming_games=upcoming_games)
+                            league_a_standings=league_a_standings, league_b_standings=league_b_standings,
+                            leaders=stats_leaders, upcoming_games=upcoming_games)
 
+# ★★★ ここが修正された roster 関数 ★★★
 @app.route('/roster', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def roster():
-    if request.method == 'POST':
-        action = request.form.get('action')
-        if action == 'add_team':
-            team_name = request.form.get('team_name'); league = request.form.get('league')
-            logo_url = None
-            if 'logo_image' in request.files:
-                file = request.files['logo_image']
-                if file and file.filename != '' and allowed_file(file.filename):
-                    try:
-                        upload_result = cloudinary.uploader.upload(file); logo_url = upload_result.get('secure_url')
-                    except Exception as e:
-                        flash(f"画像アップロードに失敗しました: {e}"); return redirect(url_for('roster'))
-                elif file.filename != '': flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
-            if team_name and league:
-                if not Team.query.filter_by(name=team_name).first():
-                    new_team = Team(name=team_name, league=league, logo_image=logo_url)
-                    db.session.add(new_team); db.session.commit()
-                    flash(f'チーム「{team_name}」が{league}に登録されました。')
-                    for i in range(1, 11):
-                        player_name = request.form.get(f'player_name_{i}')
-                        if player_name:
-                            new_player = Player(name=player_name, team_id=new_team.id); db.session.add(new_player)
-                    db.session.commit()
-                else: flash(f'チーム「{team_name}」は既に存在します。')
-            else: flash('チーム名とリーグを選択してください。')
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'add_team':
+            team_name = request.form.get('team_name'); league = request.form.get('league')
+            logo_url = None
+            if 'logo_image' in request.files:
+                file = request.files['logo_image']
+                if file and file.filename != '' and allowed_file(file.filename):
+                    try:
+                        upload_result = cloudinary.uploader.upload(file); logo_url = upload_result.get('secure_url')
+                    except Exception as e:
+                        flash(f"画像アップロードに失敗しました: {e}"); return redirect(url_for('roster'))
+                elif file.filename != '': flash('許可されていないファイル形式です。'); return redirect(url_for('roster'))
+            if team_name and league:
+                if not Team.query.filter_by(name=team_name).first():
+                    new_team = Team(name=team_name, league=league, logo_image=logo_url)
+                    db.session.add(new_team); db.session.commit()
+                    flash(f'チーム「{team_name}」が{league}に登録されました。')
+                    for i in range(1, 11):
+                        player_name = request.form.get(f'player_name_{i}')
+                        if player_name:
+                            new_player = Player(name=player_name, team_id=new_team.id); db.session.add(new_player)
+                    db.session.commit()
+                else: flash(f'チーム「{team_name}」は既に存在します。')
+            else: flash('チーム名とリーグを選択してください。')
 
-        elif action == 'add_player':
-            player_name = request.form.get('player_name'); team_id = request.form.get('team_id')
-            if player_name and team_id:
-                new_player = Player(name=player_name, team_id=team_id)
-                db.session.add(new_player); db.session.commit()
-                flash(f'選手「{player_name}」が登録されました。')
-            else: flash('選手名とチームを選択してください。')
+        elif action == 'add_player':
+            player_name = request.form.get('player_name'); team_id = request.form.get('team_id')
+            if player_name and team_id:
+                new_player = Player(name=player_name, team_id=team_id)
+                db.session.add(new_player); db.session.commit()
+                flash(f'選手「{player_name}」が登録されました。')
+            else: flash('選手名とチームを選択してください。')
 
-        elif action == 'promote_user':
-            username_to_promote = request.form.get('username_to_promote')
-            if username_to_promote:
-                user_to_promote = User.query.filter_by(username=username_to_promote).first()
-_               if user_to_promote:
-                    if user_to_promote.role != 'admin':
-                        user_to_promote.role = 'admin'; db.session.commit()
-                        flash(f'ユーザー「{username_to_promote}」を管理者に昇格させました。')
-                    else: flash(f'ユーザー「{username_to_promote}」は既に管理者です。')
-      _            else: flash(f'ユーザー「{username_to_promote}」が見つかりません。')
-            else: flash('ユーザー名を入力してください。')
+        elif action == 'promote_user':
+            username_to_promote = request.form.get('username_to_promote')
+            if username_to_promote:
+                user_to_promote = User.query.filter_by(username=username_to_promote).first()
+                if user_to_promote:
+                    if user_to_promote.role != 'admin':
+                        user_to_promote.role = 'admin'; db.session.commit()
+                        flash(f'ユーザー「{username_to_promote}」を管理者に昇格させました。')
+                    else: flash(f'ユーザー「{username_to_promote}」は既に管理者です。')
+                else: flash(f'ユーザー「{username_to_promote}」が見つかりません。')
+            else: flash('ユーザー名を入力してください。')
 
-        elif action == 'edit_player':
-            player_id = request.form.get('player_id', type=int); new_name = request.form.get('new_name')
-            player = Player.query.get(player_id)
-            if player and new_name: player.name = new_name; db.session.commit(); flash(f'選手名を「{new_name}」に変更しました。')
+        elif action == 'edit_player':
+            player_id = request.form.get('player_id', type=int); new_name = request.form.get('new_name')
+            player = Player.query.get(player_id)
+            if player and new_name: player.name = new_name; db.session.commit(); flash(f'選手名を「{new_name}」に変更しました。')
 
-        elif action == 'transfer_player':
-            player_id = request.form.get('player_id', type=int); new_team_id = request.form.get('new_team_id', type=int)
-            player = Player.query.get(player_id); new_team = Team.query.get(new_team_id)
-            if player and new_team:
-                old_team_name = player.team.name
-                player.team_id = new_team_id; db.session.commit()
-                flash(f'選手「{player.name}」を{old_team_name}から{new_team.name}に移籍させました。')
+        elif action == 'transfer_player':
+            player_id = request.form.get('player_id', type=int); new_team_id = request.form.get('new_team_id', type=int)
+            player = Player.query.get(player_id); new_team = Team.query.get(new_team_id)
+            if player and new_team:
+                old_team_name = player.team.name
+                player.team_id = new_team_id; db.session.commit()
+                flash(f'選手「{player.name}」を{old_team_name}から{new_team.name}に移籍させました。')
 
-        # ★★★ ここからが追加されたブロック ★★★
-        elif action == 'update_logo':
-            team_id = request.form.get('team_id', type=int)
-            team = Team.query.get(team_id)
+        # ★★★ ここが追加された「ロゴ更新」機能 ★★★
+        elif action == 'update_logo':
+            team_id = request.form.get('team_id', type=int)
+            team = Team.query.get(team_id)
 
-            if not team:
-                flash('対象のチームが見つかりません。')
-                return redirect(url_for('roster'))
+            if not team:
+                flash('対象のチームが見つかりません。')
+                return redirect(url_for('roster'))
 
-            if 'logo_image' in request.files:
-                file = request.files['logo_image']
-                
-                if file and file.filename != '' and allowed_file(file.filename):
-                    try:
-                        # 1. もし古い画像がCloudinaryにあれば削除する
-                        if team.logo_image:
-                            # URLからpublic_idを抽出 (例: .../v12345/public_id.png -> public_id)
-                            public_id = os.path.splitext(team.logo_image.split('/')[-1])[0]
-                            cloudinary.uploader.destroy(public_id)
-                    
-                        # 2. 新しい画像をアップロード
-        _                 upload_result = cloudinary.uploader.upload(file)
-                        logo_url = upload_result.get('secure_url')
-                        
-                        # 3. データベースのURLを更新
-                        team.logo_image = logo_url
-                        db.session.commit()
-                        flash(f'チーム「{team.name}」のロゴを更新しました。')
+            if 'logo_image' in request.files:
+                file = request.files['logo_image']
+                
+                if file and file.filename != '' and allowed_file(file.filename):
+                    try:
+                        # 1. もし古い画像がCloudinaryにあれば削除する
+                        if team.logo_image:
+                            public_id = os.path.splitext(team.logo_image.split('/')[-1])[0]
+                            cloudinary.uploader.destroy(public_id)
+                    
+                        # 2. 新しい画像をアップロード
+                        upload_result = cloudinary.uploader.upload(file)
+                        logo_url = upload_result.get('secure_url')
+                        
+                        # 3. データベースのURLを更新
+                        team.logo_image = logo_url
+                        db.session.commit()
+                        flash(f'チーム「{team.name}」のロゴを更新しました。')
 
-                    except Exception as e:
-                        flash(f"ロゴの更新に失敗しました: {e}")
-                        
-                elif file.filename != '':
-                    flash('許可されていないファイル形式です。')
-                else:
-                    flash('ロゴファイルが選択されていません。')
-        # ★★★ 追加ブロックここまで ★★★
+                    except Exception as e:
+                        flash(f"ロゴの更新に失敗しました: {e}")
+                        
+                elif file.filename != '':
+                    flash('許可されていないファイル形式です。')
+            else:
+                flash('ロゴファイルが選択されていません。')
+        
+        # どの action でも、処理が終わったら roster ページにリダイレクト
+        return redirect(url_for('roster'))
 
-        # 処理が終わったら、rosterページにリダイレクト
-        return redirect(url_for('roster')) 
-    
-    # POSTリクエストでない場合（通常のページ表示）
-    teams = Team.query.all(); users = User.query.all()
-    return render_template('roster.html', teams=teams, users=users)
+    # GETリクエスト（通常のページ表示）の場合
+    teams = Team.query.all(); users = User.query.all()
+    return render_template('roster.html', teams=teams, users=users)
+
 @app.route('/schedule')
 def schedule():
     team_id = request.args.get('team_id', type=int)
@@ -390,7 +390,7 @@ def auto_schedule():
             if current_date.weekday() in selected_weekdays:
                 for time_slot in times:
                     if len(time_slots) < total_slots_needed:
-                         time_slots.append({'date': current_date.strftime('%Y-%m-%d'), 'time': time_slot})
+                            time_slots.append({'date': current_date.strftime('%Y-%m-%d'), 'time': time_slot})
             current_date += timedelta(days=1)
         num_games_per_slot = num_teams // 2; alphabet = 'abcdefghijklmnopqrstuvwxyz'
         passwords_for_slot = [(alphabet[i % len(alphabet)] * 4) for i in range(num_games_per_slot)]
@@ -513,7 +513,7 @@ def edit_game(game_id):
 def stats_page():
     team_stats = calculate_team_stats()
     individual_stats = db.session.query(
-        Player.name.label('player_name'), Team.name.label('team_name'), 
+        Player.name.label('player_name'), Team.name.label('team_name'),
         func.count(PlayerStat.game_id).label('games_played'),
         func.avg(PlayerStat.pts).label('avg_pts'), func.avg(PlayerStat.ast).label('avg_ast'),
         func.avg(PlayerStat.reb).label('avg_reb'), func.avg(PlayerStat.stl).label('avg_stl'),
@@ -528,43 +528,6 @@ def stats_page():
     ).join(Player, PlayerStat.player_id == Player.id).join(Team, Player.team_id == Team.id).group_by(Player.id, Team.name).all()
     return render_template('stats.html', team_stats=team_stats, individual_stats=individual_stats)
 
-@app.route('/ocr-upload', methods=['POST'])
-@login_required
-@admin_required
-def ocr_upload():
-    if 'image' not in request.files:
-        return jsonify({'error': '画像ファイルがありません'}), 400
-    file = request.files['image']
-    if not (file and file.filename != '' and allowed_file(file.filename)):
-        return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
-    try:
-        api_key = os.environ.get('OCR_SPACE_API_KEY')
-        if not api_key: raise Exception("OCR.spaceのAPIキーが設定されていません。")
-        
-        processed_image = preprocess_image(file.stream)
-        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng', 'OcrEngine': 2}
-        
-        response = requests.post(
-            'https://api.ocr.space/parse/image',
-            files={'file': ('image.png', processed_image, 'image/png')},
-            data=payload,
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        if not result.get('ParsedResults'):
-            return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
-        
-        full_text = result['ParsedResults'][0]['ParsedText']
-        parsed_data = parse_nba2k_stats(full_text)
-        
-        if not parsed_data:
-            return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
-        
-        return jsonify(parsed_data)
-
-    except Exception as e:
-        return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
 
 # --- 6. データベース初期化コマンドと実行 ---
 @app.cli.command('init-db')
