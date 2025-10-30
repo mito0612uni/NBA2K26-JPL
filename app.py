@@ -4,6 +4,11 @@ import string
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
+import re
+import io
+import json
+import sys
+import requests
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, case, or_
@@ -395,6 +400,20 @@ def delete_game(game_id):
     db.session.delete(game_to_delete); db.session.commit()
     flash('試合日程を削除しました。'); return redirect(url_for('schedule'))
 
+@app.route('/schedule/delete/all', methods=['POST'])
+@login_required
+@admin_required
+def delete_all_schedules():
+    try:
+        db.session.query(PlayerStat).delete()
+        db.session.query(Game).delete()
+        db.session.commit()
+        flash('全ての日程と試合結果が正常に削除されました。')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'削除中にエラーが発生しました: {e}')
+    return redirect(url_for('schedule'))
+
 @app.route('/game/<int:game_id>/forfeit', methods=['POST'])
 @login_required
 @admin_required
@@ -414,12 +433,8 @@ def forfeit_game(game_id):
 def edit_game(game_id):
     game = Game.query.get_or_404(game_id)
     if request.method == 'POST':
-        # ★★★ ここからログインチェックを復活させます ★★★
         if not current_user.is_authenticated:
-            flash('結果を保存するにはログインが必要です。')
-            return redirect(url_for('login'))
-        # ★★★ ここまで ★★★
-
+            flash('結果を保存するにはログインが必要です。'); return redirect(url_for('login'))
         game.youtube_url_home = request.form.get('youtube_url_home'); game.youtube_url_away = request.form.get('youtube_url_away')
         PlayerStat.query.filter_by(game_id=game_id).delete()
         home_total_score, away_total_score = 0, 0
@@ -440,8 +455,6 @@ def edit_game(game_id):
         game.is_finished = True; game.winner_id = None; game.loser_id = None
         db.session.commit()
         flash('試合結果が更新されました。'); return redirect(url_for('schedule'))
-    
-    # 閲覧（GETリクエスト）時のデータ準備は変更なし
     stats = {
         str(stat.player_id): {
             'pts': stat.pts, 'reb': stat.reb, 'ast': stat.ast, 'stl': stat.stl, 'blk': stat.blk,
@@ -450,6 +463,7 @@ def edit_game(game_id):
         } for stat in PlayerStat.query.filter_by(game_id=game_id).all()
     }
     return render_template('game_edit.html', game=game, stats=stats)
+
 @app.route('/stats')
 def stats_page():
     team_stats = calculate_team_stats()
@@ -469,25 +483,45 @@ def stats_page():
     ).join(Player, PlayerStat.player_id == Player.id).join(Team, Player.team_id == Team.id).group_by(Player.id, Team.name).all()
     return render_template('stats.html', team_stats=team_stats, individual_stats=individual_stats)
 
-# --- 6. データベース初期化コマンドと実行 ---
-@app.route('/schedule/delete/all', methods=['POST'])
+@app.route('/ocr-upload', methods=['POST'])
 @login_required
 @admin_required
-def delete_all_schedules():
+def ocr_upload():
+    if 'image' not in request.files:
+        return jsonify({'error': '画像ファイルがありません'}), 400
+    file = request.files['image']
+    if not (file and file.filename != '' and allowed_file(file.filename)):
+        return jsonify({'error': 'ファイルが選択されていないか、形式が不正です'}), 400
     try:
-        # 先に全てのPlayerStatレコードを削除
-        db.session.query(PlayerStat).delete()
-        # 次に全てのGameレコードを削除
-        db.session.query(Game).delete()
+        api_key = os.environ.get('OCR_SPACE_API_KEY')
+        if not api_key: raise Exception("OCR.spaceのAPIキーが設定されていません。")
         
-        db.session.commit()
-        flash('全ての日程と試合結果が正常に削除されました。')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'削除中にエラーが発生しました: {e}')
+        processed_image = preprocess_image(file.stream)
+        payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'eng', 'OcrEngine': 2}
         
-    return redirect(url_for('schedule'))
+        response = requests.post(
+            'https://api.ocr.space/parse/image',
+            files={'file': ('image.png', processed_image, 'image/png')},
+            data=payload,
+        )
+        response.raise_for_status()
+        result = response.json()
 
+        if not result.get('ParsedResults'):
+            return jsonify({'error': f"OCR APIからのエラー: {result.get('ErrorMessage', '不明なエラー')}"}), 500
+        
+        full_text = result['ParsedResults'][0]['ParsedText']
+        parsed_data = parse_nba2k_stats(full_text)
+        
+        if not parsed_data:
+            return jsonify({'error': '画像から有効なスタッツを見つけられませんでした。'}), 500
+        
+        return jsonify(parsed_data)
+
+    except Exception as e:
+        return jsonify({'error': f'OCR処理中にエラーが発生しました: {str(e)}'}), 500
+
+# --- 6. データベース初期化コマンドと実行 ---
 @app.cli.command('init-db')
 def init_db_command():
     db.drop_all()
