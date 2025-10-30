@@ -353,7 +353,7 @@ def schedule():
 @login_required
 @admin_required
 def add_schedule():
-     if request.method == 'POST':
+    if request.method == 'POST':
         game_date = request.form['game_date']; start_time = request.form['start_time']
         home_team_id = request.form['home_team_id']; away_team_id = request.form['away_team_id']
         game_password = request.form.get('game_password')
