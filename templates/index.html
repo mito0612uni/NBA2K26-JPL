@@ -15,8 +15,8 @@
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
-    /* ★ここに好きな背景画像を指定してください★ */
-    background-image: url('https://images.unsplash.com/photo-1519861531473-92002a281d56?auto=format&fit=crop&w=1400&q=80');
+    /* ★お好みのバスケの背景画像を指定してください★ */
+    background-image: url('https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=1400&q=80');
     background-size: cover;
     background-position: center;
     background-attachment: fixed; /* スクロールしても背景を固定 */
@@ -28,7 +28,7 @@
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
-    background-color: rgba(0, 0, 0, 0.7); /* 暗めのオーバーレイ */
+    background-color: rgba(0, 0, 0, 0.75); /* 暗めのオーバーレイ */
     z-index: -1;
   }
   
@@ -36,6 +36,9 @@
   .homepage-wrapper h2 {
     border-bottom: 2px solid #007bff;
     padding-bottom: 10px;
+  }
+  .homepage-wrapper h3 {
+    color: #eee;
   }
 
   /* --- タブ切り替え --- */
@@ -45,8 +48,8 @@
     margin-bottom: -1px; /*下のボーダーと一体化*/
   }
   .tab-btn {
-    padding: 10px 20px;
-    background-color: rgba(0, 0, 0, 0.3);
+    padding: 12px 22px;
+    background-color: rgba(0, 0, 0, 0.4);
     color: #ccc;
     border: 1px solid #555;
     border-bottom: none;
@@ -76,11 +79,14 @@
     width: 100%;
     border-collapse: collapse;
     margin-top: 10px;
+    overflow-x: auto; /* スマホ表示で横スクロール */
+    display: block;
   }
   .stats-table th, .stats-table td {
     padding: 12px;
     text-align: left;
     border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    white-space: nowrap; /* 折り返さない */
   }
   .stats-table th {
     background-color: rgba(0, 0, 0, 0.2);
@@ -97,8 +103,22 @@
     width: 25px;
     object-fit: contain;
   }
+  /* リーグのタグ (以前の背景色の代わり) */
+  .league-tag {
+    font-size: 12px;
+    font-weight: bold;
+    padding: 3px 8px;
+    border-radius: 10px;
+    margin-left: 5px;
+  }
+  .league-tag-a { background-color: #ffebee; color: #c62828; }
+  .league-tag-b { background-color: #e3f2fd; color: #1565c0; }
+
 
   /* --- スタッツリーダー --- */
+  .leader-header {
+    display: flex; justify-content: space-between; align-items: center;
+  }
   .leader-grid {
     display: grid;
     /* 画面幅に合わせて列数を自動調整 */
@@ -138,9 +158,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap; /* スマホ対応 */
     gap: 15px;
   }
   .game-teams { font-weight: bold; font-size: 1.1em; }
+  .game-teams img { height: 20px; vertical-align: middle; margin: 0 5px; }
   .game-date { font-size: 0.9em; color: #ccc; }
   .game-link a {
     color: #fff;
@@ -149,125 +171,176 @@
     border-radius: 4px;
     text-decoration: none;
     font-weight: bold;
+    white-space: nowrap;
   }
+  .game-link a:hover { background-color: #0056b3; }
+  
+  /* 汎用ボタン */
+  .button.green {
+    text-decoration: none; background-color: #28a745; color: white; padding: 8px 15px; border-radius: 5px;
+  }
+
 </style>
 
 <div class="homepage-wrapper">
-  <h1>リーグダッシュボード</h1>
+  <h1>大会ダッシュボード</h1>
   
   <section class="tab-section">
     <div class="tab-navigation">
-      <button class="tab-btn active" data-tab="a-league">Aリーグ</button>
+      <button class="tab-btn active" data-tab="overall">総合順位</button>
+      <button class="tab-btn" data-tab="a-league">Aリーグ</button>
       <button class="tab-btn" data-tab="b-league">Bリーグ</button>
-      <button class="tab-btn" data-tab="overall">総合順位</button>
       <button class="tab-btn" data-tab="leaders">スタッツ</button>
     </div>
 
-    <div id="a-league" class="tab-content active">
-      <h3>Aリーグ 順位表</h3>
-      <table class="stats-table">
-        <thead>
-          <tr>
-            <th>順位</th>
-            <th>チーム</th>
-            <th>勝</th>
-            <th>敗</th>
-            <th>勝点</th>
-            <th>得失点差</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for team in league_a_standings %}
-          <tr style="cursor: pointer;" onclick="window.location.href='{{ url_for('schedule', team_id=team.team.id) }}'">
-            <td>{{ loop.index }}</td>
-            <td class="team-cell">
-              {% if team.team.logo_image %}<img src="{{ team.team.logo_image }}" alt="">{% endif %}
-              <span>{{ team.team_name }}</span>
-            </td>
-            <td>{{ team.wins }}</td>
-            <td>{{ team.losses }}</td>
-            <td><strong>{{ team.points }}</strong></td>
-            <td>{{ team.diff }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div id="overall" class="tab-content active">
+      <h3>総合順位</h3>
+      {% if overall_standings %}
+      <div style="overflow-x: auto;"> <table class="stats-table">
+          <thead>
+            <tr>
+              <th>順位</th>
+              <th>チーム名</th>
+              <th>リーグ</th>
+              <th>勝</th>
+              <th>敗</th>
+              <th>勝点</th>
+              <th>平均得点</th>
+              <th>平均失点</th>
+              <th>得失点差</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in overall_standings %}
+            <tr style="cursor: pointer;" onclick="window.location.href='{{ url_for('schedule', team_id=row.team.id) }}'">
+              <td>{{ loop.index }}</td>
+              <td class="team-cell">
+                {% if row.team and row.team.logo_image %}
+                  <img src="{{ row.team.logo_image }}" alt="">
+                {% endif %}
+                <span>{{ row.team_name }}</span>
+              </td>
+              <td>
+                {% if row.league == 'Aリーグ' %}
+                  <span class="league-tag league-tag-a">Aリーグ</span>
+                {% elif row.league == 'Bリーグ' %}
+                  <span class="league-tag league-tag-b">Bリーグ</span>
+                {% endif %}
+              </td>
+              <td>{{ row.wins }}</td>
+              <td>{{ row.losses }}</td>
+              <td><strong>{{ row.points }}</strong></td>
+              <td>{{ "%.1f"|format(row.avg_pf) }}</td>
+              <td>{{ "%.1f"|format(row.avg_pa) }}</td>
+              <td>{{ row.diff }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<p>まだ試合結果がありません。</p>{% endif %}
     </div>
 
-    <div id="b-league" class="tab-content">
-      <h3>Bリーグ 順位表</h3>
-      <table class="stats-table">
-        <thead>
-          <tr>
-            <th>順位</th>
-            <th>チーム</th>
-            <th>勝</th>
-            <th>敗</th>
-            <th>勝点</th>
-            <th>得失点差</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for team in league_b_standings %}
-          <tr style="cursor: pointer;" onclick="window.location.href='{{ url_for('schedule', team_id=team.team.id) }}'">
-            <td>{{ loop.index }}</td>
-            <td class="team-cell">
-              {% if team.team.logo_image %}<img src="{{ team.team.logo_image }}" alt="">{% endif %}
-              <span>{{ team.team_name }}</span>
-            </td>
-            <td>{{ team.wins }}</td>
-            <td>{{ team.losses }}</td>
-            <td><strong>{{ team.points }}</strong></td>
-            <td>{{ team.diff }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div id="a-league" class="tab-content">
+      <h3>Aリーグ 順位表</h3>
+      {% if league_a_standings %}
+      <div style="overflow-x: auto;">
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th>順位</th>
+              <th>チーム名</th>
+              <th>勝</th>
+              <th>敗</th>
+              <th>勝点</th>
+              <th>平均得点</th>
+              <th>平均失点</th>
+              <th>得失点差</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in league_a_standings %}
+            <tr style="cursor: pointer;" onclick="window.location.href='{{ url_for('schedule', team_id=row.team.id) }}'">
+              <td>{{ loop.index }}</td>
+              <td class="team-cell">
+                {% if row.team and row.team.logo_image %}
+                  <img src="{{ row.team.logo_image }}" alt="">
+                {% endif %}
+                <span>{{ row.team_name }}</span>
+              </td>
+              <td>{{ row.wins }}</td>
+              <td>{{ row.losses }}</td>
+              <td><strong>{{ row.points }}</strong></td>
+              <td>{{ "%.1f"|format(row.avg_pf) }}</td>
+              <td>{{ "%.1f"|format(row.avg_pa) }}</td>
+              <td>{{ row.diff }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<p>試合結果がありません。</p>{% endif %}
     </div>
     
-    <div id="overall" class="tab-content">
-      <h3>総合順位</h3>
-      <table class="stats-table">
-        <thead>
-          <tr>
-            <th>順位</th>
-            <th>チーム</th>
-            <th>勝</th>
-            <th>敗</th>
-            <th>勝点</th>
-            <th>得失点差</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for team in overall_standings %}
-          <tr style="cursor: pointer;" onclick="window.location.href='{{ url_for('schedule', team_id=team.team.id) }}'">
-            <td>{{ loop.index }}</td>
-            <td class="team-cell">
-              {% if team.team.logo_image %}<img src="{{ team.team.logo_image }}" alt="">{% endif %}
-              <span>{{ team.team_name }}</span>
-            </td>
-            <td>{{ team.wins }}</td>
-            <td>{{ team.losses }}</td>
-            <td><strong>{{ team.points }}</strong></td>
-            <td>{{ team.diff }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div id="b-league" class="tab-content">
+      <h3>Bリーグ 順位表</h3>
+      {% if league_b_standings %}
+      <div style="overflow-x: auto;">
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th>順位</th>
+              <th>チーム名</th>
+              <th>勝</th>
+              <th>敗</th>
+              <th>勝点</th>
+              <th>平均得点</th>
+              <th>平均失点</th>
+              <th>得失点差</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in league_b_standings %}
+            <tr style="cursor: pointer;" onclick="window.location.href='{{ url_for('schedule', team_id=row.team.id) }}'">
+              <td>{{ loop.index }}</td>
+              <td class="team-cell">
+                {% if row.team and row.team.logo_image %}
+                  <img src="{{ row.team.logo_image }}" alt="">
+                {% endif %}
+                <span>{{ row.team_name }}</span>
+              </td>
+              <td>{{ row.wins }}</td>
+              <td>{{ row.losses }}</td>
+              <td><strong>{{ row.points }}</strong></td>
+              <td>{{ "%.1f"|format(row.avg_pf) }}</td>
+              <td>{{ "%.1f"|format(row.avg_pa) }}</td>
+              <td>{{ row.diff }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<p>試合結果がありません。</p>{% endif %}
     </div>
 
     <div id="leaders" class="tab-content">
-      <h3>スタッツリーダー (Top 5)</h3>
+      <div class="leader-header">
+        <h3>スタッツリーダー (Top 5)</h3>
+        <a href="{{ url_for('stats_page') }}" class="button green">詳細スタッツを見る</a>
+      </div>
+      <br>
       <div class="leader-grid">
         {% for category_name, players in leaders.items() %}
           <div class="leader-card">
             <h4>{{ category_name }}</h4>
             <ol class="leader-list">
               {% for player in players %}
-                <li>
-                  <span class="player-name">{{ player[0] }}</span>
-                  <span class="player-stat">{{ "%.1f"|format(player[1]) }}</span>
-                </li>
+                 {% if player[1] is not none and player[1] > 0 %}
+                    <li>
+                      <span class="player-name">{{ player[0] }}</span>
+                      <span class="player-stat">{{ "%.1f"|format(player[1]) }}</span>
+                    </li>
+                  {% endif %}
               {% else %}
                 <li>データがありません</li>
               {% endfor %}
@@ -279,20 +352,26 @@
   </section>
 
   <section class="upcoming-section">
-    <h2>近日中の試合</h2>
+    <h2>今後の試合</h2>
     <div class="upcoming-game-list">
       {% for game in upcoming_games %}
         <div class="upcoming-game-item">
           <div>
-            <div class="game-teams">{{ game.home_team.name }} vs {{ game.away_team.name }}</div>
             <div class="game-date">{{ game.game_date }} {{ game.start_time }}</div>
+            <div class="game-teams">
+              {% if game.home_team.logo_image %}<img src="{{ game.home_team.logo_image }}" alt="">{% endif %}
+              {{ game.home_team.name }}
+              <span style="color: #ccc; margin: 0 10px;">vs</span>
+              {{ game.away_team.name }}
+              {% if game.away_team.logo_image %}<img src="{{ game.away_team.logo_image }}" alt="">{% endif %}
+            </div>
           </div>
           <div class="game-link">
             <a href="{{ url_for('edit_game', game_id=game.id) }}">結果入力</a>
           </div>
         </div>
       {% else %}
-        <p>近日中の試合はありません。</p>
+        <p>予定されている試合はありません。</p>
       {% endfor %}
     </div>
   </section>
