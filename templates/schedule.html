@@ -42,6 +42,11 @@
     padding: 15px;
     border-radius: 5px;
     margin-bottom: 25px;
+    /* ★★★ フォームを横並びにするために変更 ★★★ */
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: center;
   }
   .filter-form select {
     padding: 5px 8px;
@@ -186,15 +191,25 @@
   </div>
 
   <form method="get" action="{{ url_for('schedule') }}" class="filter-form">
-    <label for="team-select">チームで絞り込み:</label>
-    <select name="team_id" id="team-select" onchange="this.form.submit()">
-      <option value="">全チーム</option>
-      {% for team in all_teams %}
-        <option value="{{ team.id }}" {% if team.id == selected_team_id %}selected{% endif %}>{{ team.name }}</option>
-      {% endfor %}
-    </select>
-  </form>
-
+    
+    <div>
+      <label for="team-select">チームで絞り込み:</label>
+      <select name="team_id" id="team-select" onchange="this.form.submit()">
+        <option value="">全チーム</option>
+        {% for team in all_teams %}
+          <option value="{{ team.id }}" {% if team.id == selected_team_id %}selected{% endif %}>{{ team.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    
+    <div>
+      <label for="date-sort">日付で並び替え:</label>
+      <select name="sort_order" id="date-sort" onchange="this.form.submit()">
+        <option value="asc" {% if selected_sort_order == 'asc' %}selected{% endif %}>昇順 (古い順)</option>
+        <option value="desc" {% if selected_sort_order == 'desc' %}selected{% endif %}>降順 (新しい順)</option>
+      </select>
+    </div>
+    </form>
   {% if games %}
     {% for game in games %}
     <div class="game-card">
