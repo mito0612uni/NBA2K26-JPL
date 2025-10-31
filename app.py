@@ -370,7 +370,9 @@ def schedule():
                            games=games, 
                            all_teams=all_teams, 
                            selected_team_id=team_id,
-                           selected_date=selected_date) # sort_order の代わりに date を渡す@app.route('/add_schedule', methods=['GET', 'POST'])
+                           selected_date=selected_date) # sort_order の代わりに date を渡す
+
+@app.route('/add_schedule', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def add_schedule():
