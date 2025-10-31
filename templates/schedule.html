@@ -42,17 +42,28 @@
     padding: 15px;
     border-radius: 5px;
     margin-bottom: 25px;
-    /* ★★★ フォームを横並びにするために変更 ★★★ */
     display: flex;
     flex-wrap: wrap;
     gap: 20px;
     align-items: center;
   }
-  .filter-form select {
+  /* ★★★ input[type=date] も select と同じスタイルを適用 ★★★ */
+  .filter-form select,
+  .filter-form input[type="date"] {
     padding: 5px 8px;
     border-radius: 4px;
     border: 1px solid #ddd;
+    font-size: 14px; /* フォントサイズを揃える */
   }
+  /* ★★★ 日付クリアボタン ★★★ */
+  .clear-date-btn {
+    margin-left: 5px; 
+    text-decoration: none; 
+    color: #007bff; 
+    font-size: 14px;
+    font-weight: bold;
+  }
+
 
   /* 試合カード */
   .game-card {
@@ -203,11 +214,16 @@
     </div>
     
     <div>
-      <label for="date-sort">日付で並び替え:</label>
-      <select name="sort_order" id="date-sort" onchange="this.form.submit()">
-        <option value="asc" {% if selected_sort_order == 'asc' %}selected{% endif %}>昇順 (古い順)</option>
-        <option value="desc" {% if selected_sort_order == 'desc' %}selected{% endif %}>降順 (新しい順)</option>
-      </select>
+      <label for="date-select">日付で絞り込み:</label>
+      <input type="date" name="selected_date" id="date-select" 
+             value="{{ selected_date }}" 
+             onchange="this.form.submit()">
+      
+      {% if selected_date %}
+        <a href="{{ url_for('schedule', team_id=selected_team_id) }}" class="clear-date-btn">
+          (クリア)
+        </a>
+      {% endif %}
     </div>
     </form>
   {% if games %}
@@ -277,7 +293,11 @@
     </div>
     {% endfor %}
   {% else %}
-    <p>該当する試合はありません。</p>
+    {% if selected_date %}
+      <p><strong>{{ selected_date }}</strong> に該当する試合はありません。</p>
+    {% else %}
+      <p>該当する試合はありません。</p>
+    {% endif %}
   {% endif %}
 </div>
 {% endblock %}

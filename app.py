@@ -342,9 +342,9 @@ def roster():
 
 @app.route('/schedule')
 def schedule():
-    # 1. チームIDとソート順をURLパラメータから取得
+    # 1. チームIDと「選択された日付」をURLパラメータから取得
     team_id = request.args.get('team_id', type=int)
-    sort_order = request.args.get('sort_order', 'asc') # デフォルトは 'asc' (昇順)
+    selected_date = request.args.get('selected_date', '') # 日付は文字列として取得
 
     query = Game.query
 
@@ -352,23 +352,25 @@ def schedule():
     if team_id: 
         query = query.filter(or_(Game.home_team_id == team_id, Game.away_team_id == team_id))
 
-    # 3. 日付での並び替え
-    if sort_order == 'desc':
-        query = query.order_by(Game.game_date.desc(), Game.start_time.desc())
+    # 3. ★★★ 日付での絞り込み ★★★
+    if selected_date:
+        # 日付が指定されている場合、その日付で絞り込む
+        query = query.filter(Game.game_date == selected_date)
+        # 同日の試合は開始時間でソート
+        query = query.order_by(Game.start_time.asc())
     else:
-        # 'asc' または指定がない場合は昇順
+        # 日付が指定されていない場合、全体を日付昇順でソート
         query = query.order_by(Game.game_date.asc(), Game.start_time.asc())
 
     games = query.all()
     all_teams = Team.query.order_by(Team.name).all()
 
-    # 4. 現在のソート順をテンプレートに渡す
+    # 4. 選択された日付をテンプレートに渡す
     return render_template('schedule.html', 
                            games=games, 
                            all_teams=all_teams, 
                            selected_team_id=team_id,
-                           selected_sort_order=sort_order) # この行を追加
-@app.route('/add_schedule', methods=['GET', 'POST'])
+                           selected_date=selected_date) # sort_order の代わりに date を渡す@app.route('/add_schedule', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def add_schedule():
