@@ -1,0 +1,25 @@
+# 1. ベースイメージの指定: Python 3.11のスリム版を土台にする
+FROM python:3.11-slim
+
+# 2. 環境変数の設定: Cloud Runの標準ポートは8080なので、それを公開する
+ENV PORT 8080
+
+# 3. 作業ディレクトリの設定: コンテナ内の作業場所を /app にする
+WORKDIR /app
+
+# 4. 依存関係のインストール:
+# requirements.txt をコピーし、必要なPythonライブラリをインストールする
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 5. アプリケーションコードのコピー:
+# プロジェクト内の全てのファイル（app.py, templates, staticなど）を /app にコピーする
+COPY . .
+
+# 6. アプリケーションの起動コマンド:
+# Gunicorn (本番環境用サーバー) を使ってFlaskアプリを起動する
+# 構文: gunicorn --bind :$PORT --workers 1 --threads 8 app:app
+#   - --bind :$PORT: 環境変数PORT（8080）で待ち受ける
+#   - --workers 1: ワーカー数 (Cloud Runでは通常1つで十分)
+#   - app:app: app.py ファイル内の app という名前のFlaskインスタンスを起動する
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 app:app

@@ -1,4 +1,18 @@
 import os
+# ...
+# 環境変数から DATABASE_URL を読み込むように変更
+# ローカル開発用に、デフォルトで SQLite を残しておくことも可能
+
+# 接続文字列を環境変数から取得
+database_url = os.environ.get('DATABASE_URL') 
+
+# 環境変数が設定されていなければエラーを出すか、ローカルDBを使う
+if not database_url:
+    print("DATABASE_URL 環境変数が設定されていません！")
+    # 開発環境の場合は、ここで SQLite のパスなどを設定
+    database_url = 'sqlite:///site.db' # ローカルテスト用
+
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 import random
 import string
 import cloudinary
