@@ -2,12 +2,14 @@ steps:
 # cloudbuild.yaml の最初のステップのみを修正
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: [ 'build', '-t', 'gcr.io/winged-weft-474616-b5/nba2k-app:$COMMIT_SHA', '.' ]
-  # ↑ '-f', './Dockerfile' の部分を削除し、最もシンプルな形に戻す。
-  # Cloud Buildはデフォルトでルートの Dockerfile を探すため、これで動作するはずです
-
-# ... 2, 3, 4 ステップはそのまま
-# 2. イメージをコンテナレジストリにプッシュする
+  args: [ 
+    'build', 
+    '-t', 'gcr.io/winged-weft-474616-b5/nba2k-app:$COMMIT_SHA', 
+    '.', 
+    '-f', './Dockerfile' 
+    # ↑ 明示的なファイルパス指定を再導入
+  ]
+# ... 2, 3, 4 ステップはそのまま# 2. イメージをコンテナレジストリにプッシュする
 - name: 'gcr.io/cloud-builders/docker'
   args: [ 'push', 'gcr.io/winged-weft-474616-b5/nba2k-app:$COMMIT_SHA' ]
 
