@@ -9,7 +9,7 @@ steps:
     '-f', './Dockerfile' 
     # ↑ 明示的なファイルパス指定を再導入
   ]
-# ... 2, 3, 4 ステップはそのまま# 2. イメージをコンテナレジストリにプッシュする
+# ... 2, 3, 4 ステップはそのまま# 2. イメージをコンテナレジストリにプッシュす
 - name: 'gcr.io/cloud-builders/docker'
   args: [ 'push', 'gcr.io/winged-weft-474616-b5/nba2k-app:$COMMIT_SHA' ]
 
