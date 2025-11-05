@@ -1,0 +1,23 @@
+steps:
+# 1. コンテナイメージをビルドする
+- name: 'gcr.io/cloud-builders/docker'
+  args: [ 'build', '-t', 'gcr.io/winged-weft-474616-b5/nba2k-app:$COMMIT_SHA', '.' ]
+
+# 2. イメージをコンテナレジストリにプッシュする
+- name: 'gcr.io/cloud-builders/docker'
+  args: [ 'push', 'gcr.io/winged-weft-474616-b5/nba2k-app:$COMMIT_SHA' ]
+
+# 3. Cloud Run にデプロイする
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args: [
+    'run', 'deploy', 'nba2k26-jpl',  # <-- Cloud Run のサービス名
+    '--image', 'gcr.io/winged-weft-474616-b5/nba2k-app:$COMMIT_SHA',
+    '--region', 'asia-northeast1', # <-- デプロイ先のリージョン
+    '--allow-unauthenticated',     # <-- 認証なしアクセスを許可
+    '--platform', 'managed'        # <-- Cloud Run (managed) を指定
+  ]
+
+# 4. オプション：ロギング設定（エラーの解決）
+options:
+  logging: CLOUD_LOGGING_ONLY
