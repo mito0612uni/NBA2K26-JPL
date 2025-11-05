@@ -1,7 +1,10 @@
 steps:
-# 1. コンテナイメージをビルドする
+# 1. コンテナイメージをビルドするステップ
+# '.' はコンテキスト（コードの場所）を指し、-f ./Dockerfile は使用するファイルを指します。
 - name: 'gcr.io/cloud-builders/docker'
-  args: [ 'build', '-t', 'gcr.io/winged-weft-474616-b5/nba2k-app:$COMMIT_SHA', '.' ]
+  args: [ 'build', '-t', 'gcr.io/winged-weft-474616-b5/nba2k-app:$COMMIT_SHA', '.', '-f', './Dockerfile' ]
+  # ↑ -f ./Dockerfile を追加して、Dockerfileのパスを明示します。
+# ... 続くステップは変更なし
 
 # 2. イメージをコンテナレジストリにプッシュする
 - name: 'gcr.io/cloud-builders/docker'
